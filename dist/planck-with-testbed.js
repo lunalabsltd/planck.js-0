@@ -7807,7 +7807,7 @@ Body.prototype.createFixture = function(shape, fixdef) {
 
   var fixture = new Fixture(this, shape, fixdef);
 
-  if (this.m_activeFlag) {
+  if (this.m_activeFlag && fixture.m_activeFlag) {
     var broadPhase = this.m_world.m_broadPhase;
     fixture.createProxies(broadPhase, this.m_xf);
   }
@@ -7820,7 +7820,7 @@ Body.prototype.createFixture = function(shape, fixdef) {
     this.resetMassData();
   }
 
-  // Let the world know we have a new fixture. This will cause new contacts
+  // Let the world know we have a new fixture. If fixture is active this will cause new contacts
   // to be created at the beginning of the next time step.
   this.m_world.m_newFixture = true;
 
@@ -8405,6 +8405,7 @@ var FixtureDef = {
   restitution : 0.0,
   density : 0.0,
   isSensor : false,
+  active: true,
 
   filterGroupIndex : 0,
   filterCategoryBits : 0x0001,
@@ -8447,6 +8448,7 @@ function Fixture(body, shape, def) {
   this.m_restitution = def.restitution;
   this.m_density = def.density;
   this.m_isSensor = def.isSensor;
+  this.m_activeFlag = def.active;
 
   this.m_filterGroupIndex = def.filterGroupIndex;
   this.m_filterCategoryBits = def.filterCategoryBits;
@@ -8747,6 +8749,25 @@ Fixture.prototype.shouldCollide = function(that) {
   var collide = (that.m_filterMaskBits & this.m_filterCategoryBits) != 0
       && (that.m_filterCategoryBits & this.m_filterMaskBits) != 0;
   return collide;
+}
+
+Fixture.prototype.isActive = function() {
+  return this.m_activeFlag;
+}
+
+Fixture.prototype.setActive = function(flag) {
+  if (flag == this.m_activeFlag) {
+    return;
+  }
+
+  this.m_activeFlag = !!flag;
+  var body = this.m_body;
+
+  if (this.m_activeFlag) {
+    this.createProxies(body.getWorld().m_broadPhase, body.getTransform());
+  } else {
+    this.destroyProxies(body.getWorld().m_broadPhase); // contacts will be destroyed on next step.
+  }
 }
 
 
@@ -9593,9 +9614,17 @@ World.prototype.updateContacts = function() {
   // Update awake contacts.
   var c, next_c = this.m_contactList;
   while (c = next_c) {
-    next_c = c.getNext()
+    next_c = c.getNext();
     var fixtureA = c.getFixtureA();
+    if (!fixtureA.isActive()) {
+      this.destroyContact(c);
+      continue;
+    }
     var fixtureB = c.getFixtureB();
+    if (!fixtureB.isActive()) {
+      this.destroyContact(c);
+      continue;
+    }
     var indexA = c.getChildIndexA();
     var indexB = c.getChildIndexB();
     var bodyA = fixtureA.getBody();
