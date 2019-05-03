@@ -5990,12 +5990,17 @@ CircleShape.prototype.rayCast = function(output, input, xf, childIndex) {
 
   // Solve quadratic equation.
   var r = Vec2.sub(input.p2, input.p1);
-  var c = Vec2.dot(s, r);
   var rr = Vec2.dot(r, r);
+
+  if (rr < Math.EPSILON) {
+    return b < 0;
+  }
+
+  var c = Vec2.dot(s, r);
   var sigma = c * c - rr * b;
 
   // Check for negative discriminant and short segment.
-  if (sigma < 0.0 || rr < Math.EPSILON) {
+  if (sigma < 0.0) {
     return false;
   }
 
