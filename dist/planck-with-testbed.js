@@ -279,6 +279,8 @@ Vec2.zero = function() {
   return obj;
 };
 
+Vec2.ZERO = Vec2.zero();
+
 Vec2.neo = function(x, y) {
   var obj = Object.create(Vec2.prototype);
   obj.x = x;
@@ -528,6 +530,22 @@ Vec2.prototype.normalize = function() {
   this.y *= invLength;
   return length;
 }
+
+Vec2.prototype.rot = function(rot) {
+  var x = this.x;
+  var y = this.y;
+  this.x = rot.c * x - rot.s * y;
+  this.y = rot.s * x + rot.c * y;
+  return this;
+};
+
+Vec2.prototype.rotT = function(rot) {
+  var x = this.x;
+  var y = this.y;
+  this.x = rot.c * x + rot.s * y;
+  this.y = -rot.s * x + rot.c * y;
+  return this;
+};
 
 /**
  * Get the length of this vector (the norm).
@@ -4720,6 +4738,8 @@ var AABB = __webpack_require__(16);
 var Settings = __webpack_require__(5);
 var Shape = __webpack_require__(15);
 
+var p = new Vec2(), p1 = new Vec2(), p2 = new Vec2(), v1 = new Vec2(), v2 = new Vec2(), d = new Vec2();
+
 PolygonShape._super = Shape;
 PolygonShape.prototype = create(PolygonShape._super.prototype);
 
@@ -4744,6 +4764,7 @@ function PolygonShape(vertices) {
   this.m_vertices = []; // Vec2[Settings.maxPolygonVertices]
   this.m_normals = []; // Vec2[Settings.maxPolygonVertices]
   this.m_count = 0;
+  this.m_outsidePoint = new Vec2(1.0, 1.0);
 
   if (vertices && vertices.length) {
     this._set(vertices);
@@ -4764,6 +4785,7 @@ PolygonShape.prototype._clone = function() {
   clone.m_radius = this.m_radius;
   clone.m_count = this.m_count;
   clone.m_centroid.set(this.m_centroid);
+  clone.m_outsidePoint.set(this.m_outsidePoint);
   for (var i = 0; i < this.m_count; i++) {
     clone.m_vertices.push(this.m_vertices[i].clone());
   }
@@ -4920,9 +4942,22 @@ PolygonShape.prototype._set = function(vertices) {
 
   this.m_count = m;
 
-  // Copy vertices.
-  for (var i = 0; i < m; ++i) {
-    this.m_vertices[i] = ps[hull[i]];
+  if (m > 0) {
+    var maxX = -Infinity, maxY = maxX;
+
+    // Copy vertices.
+    for (var v, i = 0; i < m; ++i) {
+      v = this.m_vertices[i] = ps[hull[i]];
+      if (v.x > maxX) {
+        maxX = v.x;
+      }
+      if (v.y > maxY) {
+        maxY = v.y;
+      }
+    }
+
+    this.m_outsidePoint.x = maxX + 1.0;
+    this.m_outsidePoint.y = maxY + 1.0;
   }
 
   // Compute normals. Ensure the edges have non-zero length.
@@ -4964,11 +4999,25 @@ PolygonShape.prototype._setAsBox = function(hx, hy, center, angle) {
     xf.p.set(center);
     xf.q.set(angle);
 
+    var maxX = -Infinity, maxY = maxX;
+
     // Transform vertices and normals.
-    for (var i = 0; i < this.m_count; ++i) {
-      this.m_vertices[i] = Transform.mulVec2(xf, this.m_vertices[i]);
+    for (var v, i = 0; i < this.m_count; ++i) {
+      v = this.m_vertices[i] = Transform.mulVec2(xf, this.m_vertices[i]);
       this.m_normals[i] = Rot.mulVec2(xf.q, this.m_normals[i]);
+
+      if (v.x > maxX) {
+        maxX = v.x;
+      }
+      if (v.y > maxY) {
+        maxY = v.y;
+      }
     }
+
+    this.m_outsidePoint.x = maxX + 1.0;
+    this.m_outsidePoint.y = maxY + 1.0;
+  } else {
+    this.m_outsidePoint.x = this.m_outsidePoint.y = (hx > hy ? hx : hy) + 1.0;
   }
 }
 
@@ -4986,58 +5035,81 @@ PolygonShape.prototype.testPoint = function(xf, p) {
 }
 
 PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
+  p1.set(input.p1);
+  p2.set(input.p2);
 
   // Put the ray into the polygon's frame of reference.
-  var p1 = Rot.mulTVec2(xf.q, Vec2.sub(input.p1, xf.p));
-  var p2 = Rot.mulTVec2(xf.q, Vec2.sub(input.p2, xf.p));
-  var d = Vec2.sub(p2, p1);
+  p1 = p1.sub(xf.p).rotT(xf.q);
+  p2 = p2.sub(xf.p).rotT(xf.q);
 
-  var lower = 0.0;
-  var upper = input.maxFraction;
+  d = d.set(p2).sub(p1); // Direction of the ray.
 
+  var isPoint = Vec2.dot(d, d) <= Math.EPSILON;
+  if (isPoint) { // If we can raycast outside then we start inside.
+    p2.set(this.m_outsidePoint);
+    d = d.set(p2).sub(p1);
+  }
+
+  var maxFraction = input.maxFraction;
+  var lowest = maxFraction;
+  var lower, upper;
   var index = -1;
+  var count = 0;
 
-  for (var i = 0; i < this.m_count; ++i) {
+  for (var m_count = this.m_count, i = 0; i < m_count; ++i) {
     // p = p1 + a * d
     // dot(normal, p - v) = 0
     // dot(normal, p1 - v) + a * dot(normal, d) = 0
-    var numerator = Vec2.dot(this.m_normals[i], Vec2.sub(this.m_vertices[i], p1));
-    var denominator = Vec2.dot(this.m_normals[i], d);
+    // -numerator + a * denominator = 0
+    var normal = this.m_normals[i];
+    var numerator = Vec2.dot( normal, p.set( v1.set(this.m_vertices[i]) ).sub(p1) );
+    var denominator = Vec2.dot(normal, d);
 
-    if (denominator == 0.0) {
-      if (numerator < 0.0) {
-        return false;
-      }
+    if (denominator == 0.0) { // Ray is parallel to poligon's side.
+      continue;
     } else {
-      // Note: we want this predicate without division:
-      // lower < numerator / denominator, where denominator < 0
-      // Since denominator < 0, we have to flip the inequality:
-      // lower < numerator / denominator <==> denominator * lower > numerator.
-      if (denominator < 0.0 && numerator < lower * denominator) {
+
+      var a = numerator / denominator;
+      p.set(d).mul(a).add(p1);
+
+      v2.set( this.m_vertices[ i + 1 < this.m_count  ? i + 1 : 0 ] ); // Set second vertex.
+      var intersects = Vec2.dot(v1.sub(p), v2.sub(p)) < 0.0; // If ray line intersects polygon side.
+      if (!intersects) {
+        continue;
+      }
+
+      lower = 0.0;
+      upper = maxFraction;
+
+      intersects = lower < a; // If half-line intersects polygon side.
+      if (intersects) {
+        ++count;
+      }
+
+      if (denominator < 0.0 && intersects) { // denominator < 0 <=> ray and normal are opposite.
         // Increase lower.
         // The segment enters this half-space.
-        lower = numerator / denominator;
-        index = i;
-      } else if (denominator > 0.0 && numerator < upper * denominator) {
+        lower = a;
+      } else if (denominator > 0.0 && a < upper) { // denominator > 0 <=> ray and normal are codirectional.
         // Decrease upper.
         // The segment exits this half-space.
-        upper = numerator / denominator;
+        upper = a;
       }
+
     }
 
-    // The use of epsilon here causes the assert on lower to trip
-    // in some cases. Apparently the use of epsilon was to make edge
-    // shapes work, but now those are handled separately.
-    // if (upper < lower - Math.EPSILON)
-    if (upper < lower) {
-      return false;
+    if (lower <= upper && lower < lowest) {
+      index = i; // Save closest intersection.
     }
+
   }
 
-  _ASSERT && common.assert(0.0 <= lower && lower <= input.maxFraction);
-
-  if (index >= 0) {
-    output.fraction = lower;
+  if (count & 1) { // Half-line intersections number is odd => we start inside.
+    output.fraction = 0.0;
+    output.normal = Vec2.ZERO;
+    return true;
+  } else if (index >= 0 && !isPoint) {
+    output.fraction = lowest;
     output.normal = Rot.mulVec2(xf.q, this.m_normals[index]);
     return true;
   }
@@ -5988,19 +6060,20 @@ CircleShape.prototype.rayCast = function(output, input, xf, childIndex) {
   var s = Vec2.sub(input.p1, position);
   var b = Vec2.dot(s, s) - this.m_radius * this.m_radius;
 
-  // Solve quadratic equation.
-  var r = Vec2.sub(input.p2, input.p1);
-  var rr = Vec2.dot(r, r);
-
-  if (rr < Math.EPSILON) {
-    return b < 0;
+  if (b < 0.0) {
+    output.fraction = 0;
+    output.normal = Vec2.ZERO;
+    return true;
   }
 
+  // Solve quadratic equation.
+  var r = Vec2.sub(input.p2, input.p1);
   var c = Vec2.dot(s, r);
+  var rr = Vec2.dot(r, r);
   var sigma = c * c - rr * b;
 
   // Check for negative discriminant and short segment.
-  if (sigma < 0.0) {
+  if (sigma < 0.0 || rr < Math.EPSILON) {
     return false;
   }
 
