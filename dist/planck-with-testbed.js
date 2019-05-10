@@ -4808,7 +4808,13 @@ function ComputeCentroid(vs, count) {
   // pRef is the reference point for forming triangles.
   // It's location doesn't change the result (except for rounding error).
   var pRef = Vec2.zero();
-  if (false) { var i; }
+  /*if (false) {
+    // This code would put the reference point inside the polygon.
+    for (var i = 0; i < count; ++i) {
+      pRef.add(vs[i]);
+    }
+    pRef.mul(1.0 / count);
+  }*/
 
   var inv3 = 1.0 / 3.0;
 
@@ -5046,8 +5052,7 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
 
   var isPoint = Vec2.dot(d, d) <= Math.EPSILON;
   if (isPoint) { // If we can raycast outside then we start inside.
-    p2.set(this.m_outsidePoint);
-    d = d.set(p2).sub(p1);
+    d = d.set(this.m_outsidePoint).sub(p1);
   }
 
   var maxFraction = input.maxFraction;
@@ -5106,11 +5111,12 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
 
   if (count & 1) { // Half-line intersections number is odd => we start inside.
     output.fraction = 0.0;
-    output.normal = Vec2.ZERO;
+    output.normal = Vec2.ZERO; // we are safe to return a reference as it's coppied in c# wrapper.
     return true;
   } else if (index >= 0 && !isPoint) {
     output.fraction = lowest;
-    output.normal = Rot.mulVec2(xf.q, this.m_normals[index]);
+    // we are safe to return a reference as it's coppied in c# wrapper.
+    output.normal = d.set(this.m_normals[index]).rot(xf.q);
     return true;
   }
 
@@ -6151,6 +6157,8 @@ var Rot = __webpack_require__(3);
 var Vec2 = __webpack_require__(1);
 var AABB = __webpack_require__(16);
 
+var p = new Vec2(), p1 = new Vec2(), p2 = new Vec2(), v1 = new Vec2(), v2 = new Vec2(), d = new Vec2();
+
 EdgeShape._super = Shape;
 EdgeShape.prototype = create(EdgeShape._super.prototype);
 
@@ -6161,7 +6169,7 @@ EdgeShape.TYPE = 'edge';
  * other edge shapes. The connectivity information is used to ensure correct
  * contact normals.
  */
-function EdgeShape(v1, v2) {
+function EdgeShape(v1, v2, radius) {
   if (!(this instanceof EdgeShape)) {
     return new EdgeShape(v1, v2);
   }
@@ -6174,6 +6182,14 @@ function EdgeShape(v1, v2) {
   // These are the edge vertices
   this.m_vertex1 = v1 ? Vec2.clone(v1) : Vec2.zero();
   this.m_vertex2 = v2 ? Vec2.clone(v2) : Vec2.zero();
+
+  if (radius > 0.0) {
+    this.m_edgeRadius = radius;
+    this.m_noAlignRot = true; // This rotation is used to align edge to y axis,
+                              // so v1 is in origin and (v1, v2) is codirectional with y.
+  } else {
+    this.m_edgeRadius = 0.0;
+  }
 
   // Optional adjacent vertices. These are used for smooth collision.
   // Used by chain shape.
@@ -6213,6 +6229,7 @@ EdgeShape.prototype._set = function(v1, v2) {
   this.m_vertex2.set(v2);
   this.m_hasVertex0 = false;
   this.m_hasVertex3 = false;
+  this.m_noAlignMatrix = true;
   return this;
 }
 
@@ -6229,6 +6246,7 @@ EdgeShape.prototype._clone = function() {
   clone.m_vertex3.set(this.m_vertex3);
   clone.m_hasVertex0 = this.m_hasVertex0;
   clone.m_hasVertex3 = this.m_hasVertex3;
+  clone.m_edgeRadius = this.m_edgeRadius;
   return clone;
 }
 
@@ -6237,8 +6255,56 @@ EdgeShape.prototype.getChildCount = function() {
 }
 
 EdgeShape.prototype.testPoint = function(xf, p) {
-  return false;
-}
+  if (this.m_edgeRadius <= 0.0) { // No radius => we never inside.
+    return false;
+  }
+  // Put the point into the edge's frame of reference.
+  p = p1.set(p).sub(xf.p).rotT(xf.q);
+
+  // Transform all points so v2 is on y axis, positive half-space, v1 is in (0, 0).
+  if (this.m_noAlignRot) {
+    this.m_alignRot = this._getAlignRot();
+    this.m_alignedV2 = this._alignPoint( (this.m_alignedV2 || new Vec2()).set(this.m_vertex2) );
+  }
+  p = this._alignPoint(p);
+  var v2 = this.m_alignedV2;
+
+  var radius = this.m_edgeRadius;
+  if (p.y > v2.y) {
+    var dx = p.x - v2.x, dy = p.y - v2.y;
+    return dx * dx + dy * dy < radius * radius;
+  }
+  if (p.y < 0.0) {
+    return p.x * p.x + p.y * p.y < radius * radius;
+  }
+  return -radius < p.x && p.x < radius;
+};
+
+EdgeShape.prototype._getAlignRot = function() {
+  var rot = this.m_alignRot = this.m_alignRot || new Rot();
+  this.m_noAlignRot = false;
+
+  var v1 = this.m_vertex1, v2 = this.m_vertex2;
+  var length = d.set(v2).sub(v1).length();
+
+  if (length <= Math.EPSILON) {
+    return rot;
+  }
+
+  // cos = ( x1 * x2 + y1 * y2 ) / ( length1 * length2 )
+  // sin = ( x1 * y2 - x2 * y1 ) / ( length1 * length2 )
+  // x1 = d.x, y1 = d.y
+  // x2 = 0, y2 = 1
+  // length1 = length, length2 = 1
+  rot.c = d.y / length;
+  rot.s = d.x / length;
+
+  return rot;
+};
+
+EdgeShape.prototype._alignPoint = function(p) {
+  return p.sub(this.m_vertex1).rot(this.m_alignRot);
+};
 
 // p = p1 + t * d
 // v = v1 + s * e
@@ -6247,62 +6313,290 @@ EdgeShape.prototype.testPoint = function(xf, p) {
 EdgeShape.prototype.rayCast = function(output, input, xf, childIndex) {
   // NOT_USED(childIndex);
 
-  // Put the ray into the edge's frame of reference.
-  var p1 = Rot.mulTVec2(xf.q, Vec2.sub(input.p1, xf.p));
-  var p2 = Rot.mulTVec2(xf.q, Vec2.sub(input.p2, xf.p));
-  var d = Vec2.sub(p2, p1);
+  if (this.m_edgeRadius > 0.0) {
+    return this.rayCastWithRadius(output, input, xf);
+  }
 
-  var v1 = this.m_vertex1;
-  var v2 = this.m_vertex2;
-  var e = Vec2.sub(v2, v1);
-  var normal = Vec2.neo(e.y, -e.x);
-  normal.normalize();
+  v1 = v1.set(this.m_vertex1);
+  v2 = v2.set(this.m_vertex2);
+  v2 = v2.sub(v1);
+  var r = v2;
+  p = p.set(r.y, -r.x);
+  var normal = p;
+  var length = normal.normalize();
+
+  if (length <= Math.EPSILON) { // The edge is a point, can't intersect.
+    return false;
+  }
+
+  // Put the ray into the edge's frame of reference.
+  p1 = p1.set(input.p1).sub(xf.p).rotT(xf.q);
+  p2 = p2.set(input.p2).sub(xf.p).rotT(xf.q);
+  d = d.set(p2).sub(p1);
 
   // q = p1 + t * d
   // dot(normal, q - v1) = 0
   // dot(normal, p1 - v1) + t * dot(normal, d) = 0
-  var numerator = Vec2.dot(normal, Vec2.sub(v1, p1));
   var denominator = Vec2.dot(normal, d);
 
-  if (denominator == 0.0) {
+  if (denominator <= Math.EPSILON) { // Ray is parallel to the edge.
     return false;
   }
+
+  p2 = p2.set(v1).sub(p1);
+  var numerator = Vec2.dot(normal, p2);
 
   var t = numerator / denominator;
   if (t < 0.0 || input.maxFraction < t) {
     return false;
   }
 
-  var q = Vec2.add(p1, Vec2.mul(t, d));
-
   // q = v1 + s * r
   // s = dot(q - v1, r) / dot(r, r)
-  var r = Vec2.sub(v2, v1);
-  var rr = Vec2.dot(r, r);
-  if (rr == 0.0) {
-    return false;
-  }
+  var rr = length * length;
 
-  var s = Vec2.dot(Vec2.sub(q, v1), r) / rr;
+  // q = p1 + t * d
+  d = d.mul(t);
+  p1 = p1.add(d);
+  var q = p1;
+
+  q = q.sub(v1);
+  var s = Vec2.dot(q, r) / rr;
   if (s < 0.0 || 1.0 < s) {
     return false;
   }
 
   output.fraction = t;
   if (numerator > 0.0) {
-    output.normal = Rot.mulVec2(xf.q, normal).neg();
+    output.normal = normal.rot(xf.q).neg(); // We are safe to return a reference as it's coppied in c# wrapper.
   } else {
-    output.normal = Rot.mulVec2(xf.q, normal);
+    output.normal = normal.rot(xf.q); // We are safe to return a reference as it's coppied in c# wrapper.
   }
   return true;
-}
+};
+
+EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
+  if (this.m_noAlignRot) {
+    this.m_alignRot = this._getAlignRot();
+    this.m_alignedV2 = this._alignPoint( (this.m_alignedV2 || new Vec2()).set(this.m_vertex2) );
+  }
+
+  var radius = this.m_edgeRadius;
+
+  // Put the ray into the edge's frame of reference.
+  p1 = this._alignPoint( p1.set(input.p1).sub(xf.p).rotT(xf.q) );
+  p2 = this._alignPoint( p2.set(input.p2).sub(xf.p).rotT(xf.q) );
+  d = d.set(p2).sub(p1);
+  var dx = d.x;
+
+  if (-Math.EPSILON <= dx && dx <= Math.EPSILON) { // The ray runs parallel to edge y axis.
+    var px = p1.x; // Intersection point x component.
+    if (px <= -radius || radius <= px) { // The ray runs parallel to the edge and fully outside of its radius.
+      return false;
+    }
+    var height = this.m_alignedV2.y;
+    var ry = Math.sqrt(radius * radius - px * px);
+    var py = height + ry; // Intersection point y component.
+
+    if (p1.y >= py) { // The ray starts above top.
+      if (p2.y >= py) { // The ray ends above top, it's fully outside.
+        return false;
+      }
+      output.fraction = (p1.y - py) / d.length();
+      output.normal = p.set(px, ry); // Will be coppied in c# wrapper.
+      output.normal.mul(1.0 / radius);
+    } else if (p1.y <= -ry) { // The ray starts below bottom.
+      if (p2.y <= -ry) { // The ray ends below bottom, it's fully outside.
+        return false;
+      }
+      output.fraction = (-p1.y - ry) / d.length();
+      output.normal = p.set(px, -ry); // Will be coppied in c# wrapper.
+      output.normal.mul(1.0 / radius);
+    } else { // The ray starts between top and bottom.
+      output.fraction = 0.0;
+      output.normal = Vec2.ZERO; // Will be coppied in c# wrapper.
+    }
+  } else { // The ray is not parallel to edge y axis.
+    var p1x = p1.x;
+    var t1 = (-radius - p1x) / dx; // Intersection points of the ray line and cylinder containing edge with radius.
+    var t2 = (radius - p1x) / dx;
+
+    if ( (t1 <= 0.0 && t2 <= 0.0) || (t1 >= 1.0 && t2 >= 1.0) ) { // Intersections are outside of the ray.
+      return false;
+    }
+
+    if (t1 > t2) {
+      var t = t1;
+      t1 = t2;
+      t2 = t;
+    }
+
+    var dy = d.y;
+    var p1y = p1.y;
+    var y1 = p1y + t1 * dy;
+    if (y1 > height) { // Line intersects cylinder above edge top.
+      var a = dx * dx + dy * dy;
+      var c = p1x * p1x + (p1y - height) * (p1y - height) - radius * radius;
+      var k = p1x * dx + dy * (p1y - height);
+      var discr = k * k - a * c;
+
+      if (discr <= Math.EPSILON) { // Line doesn't intersect top circle.
+        return false;
+      }
+
+      var discrSqrt = Math.sqrt(discr);
+      var t3 = (-k - discrSqrt) / a; // Line and top circle intersection closest to start point.
+
+      if (t3 >= 0.0) { 
+        if (t3 < 1.0) { // Intersection is inside of the segment.
+          output.fraction = t3;
+          output.normal = p.set(p1x + t3 * dx, p1y + t3 * dy - height); // Will be coppied in c# wrapper.
+          output.normal.mul(1.0 / radius);
+        } else { // Intersection is after segment ends.
+          return false;
+        }
+      } else { // The ray is pointing away from the line and top circle first intersection.
+        var t4 = (-k + discrSqrt) / a; 
+        var y4 = p1y + t4 * dy;
+
+        if (y4 >= height) { // Line and top circle intersection happens on the shape surface.
+          if (t4 <= 0.0) { // Start point is outside of semicircle.
+            return false;
+          }
+          // Start point is inside of semicircle.
+        } else { // Line intersects bottom semicircle of the top circle.
+          var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
+          if (y2 < 0.0) { // Line intersects cylinder below edge bottom, i. e. intersects bottom circle.
+
+            c += height * (2 * p1y - height);
+            k += dy * height;
+            discr = k * k - a * c;
+
+            if (discr <= 0.0) { // Line doesn't intersect bottom circle or has single intersection point, that should never happen.
+              return null;
+            }
+
+            discrSqrt = Math.sqrt(discr);
+            t4 = (-k + discrSqrt) / a;
+
+            if (t4 <= 0.0) { // The ray is pointing away from bottom circle, no intersections.
+              return false;
+            }
+            // The ray starts inside of the shape.
+          } // Line intersects cylinder inside of the shape.
+        }
+        output.fraction = 0.0;
+        output.normal = Vec2.ZERO; // Will be coppied in c# wrapper.
+      }
+    } else if (y1 < 0.0) { // Line intersects cylinder below edge bottom.
+      var a = dx * dx + dy * dy;
+      var c = p1x * p1x + p1y * p1y - radius * radius;
+      var k = p1x * dx + p1y * dy;
+      var discr = k * k - a * c;
+
+      if (discr <= Math.EPSILON) { // Line doesn't intersect bottom circle.
+        return false;
+      }
+
+      var discrSqrt = Math.sqrt(discr);
+      var t3 = (-k - discrSqrt) / a; // Line and bottom circle intersection closest to start point.
+
+      if (t3 >= 0.0) { 
+        if (t3 < 1.0) { // Intersection is inside of the segment.
+          output.fraction = t3;
+          output.normal = p.set(p1x + t3 * dx, p1y + t3 * dy); // Will be coppied in c# wrapper.
+          output.normal.mul(1.0 / radius);
+        } else { // Intersection is after segment ends.
+          return false;
+        }
+      } else { // The ray is pointing away from the line and bottom circle first intersection.
+        var t4 = (-k + discrSqrt) / a; 
+        var y4 = p1y + t4 * dy;
+
+        if (y4 <= 0.0) { // Line and bottom circle intersection happens on the shape surface.
+          if (t4 <= 0.0) { // Start point is outside of semicircle.
+            return false;
+          }
+          // Start point is inside of semicircle.
+        } else { // Line intersects top semicircle of the bottom circle.
+          var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
+          if (y2 > height) { // Line intersects cylinder above edge bottom, i. e. intersects top circle.
+
+            c -= height * (2 * p1y - height);
+            k -= dy * height;
+            discr = k * k - a * c;
+
+            if (discr <= 0.0) { // Line doesn't intersect top circle or has single intersection point, that should never happen.
+              return null;
+            }
+
+            discrSqrt = Math.sqrt(discr);
+            t4 = (-k + discrSqrt) / a;
+
+            if (t4 <= 0.0) { // The ray is pointing away from top circle, no intersections.
+              return false;
+            }
+            // The ray starts inside of the shape.
+          } // Line intersects cylinder inside of the shape.
+        }
+        output.fraction = 0.0;
+        output.normal = Vec2.ZERO; // Will be coppied in c# wrapper.
+      }
+    } else if (t1 >= 0.0) { // The ray intersects cylinder between top and bottom (first intersection point).
+      output.fraction = t1;
+      output.normal = p.set(dx > 0.0 ? -1.0 : 1.0, 0.0); // Will be coppied in c# wrapper.
+    } else { // Start point is inside of cylinder and the ray is pointing away from first intersection point.
+      var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
+
+      if (y2 > height) { // Line intersects cylinder above edge top.
+        var a = dx * dx + dy * dy;
+        var c = p1x * p1x + (p1y - height) * (p1y - height) - radius * radius;
+        var k = p1x * dx + dy * (p1y - height);
+        var discr = k * k - a * c;
+
+        if (discr <= 0.0) { // Line doesn't intersect top circle or has single intersection point, that should never happen.
+          return false;
+        }
+
+        var discrSqrt = Math.sqrt(discr);
+        var t4 = (-k + discrSqrt) / a; // Line and top circle intersection point, the most distant from the start point.
+
+        if (t4 <= 0.0) { // The ray is pointing away from the top circle.
+          return false;
+        }
+      } else if (y2 < 0.0) { // Line intersects cylinder below edge bottom.
+        var a = dx * dx + dy * dy;
+        var c = p1x * p1x + p1y * p1y - radius * radius;
+        var k = p1x * dx + p1y * dy;
+        var discr = k * k - a * c;
+
+        if (discr <= 0.0) { // Line doesn't intersect bottom circle or has single intersection point, that should never happen.
+          return false;
+        }
+
+        var discrSqrt = Math.sqrt(discr);
+        var t4 = (-k + discrSqrt) / a; // Line and bottom circle intersection point, the most distant from the start point.
+
+        if (t4 <= 0.0) { // The ray is pointing away from the bottom circle.
+          return false;
+        }
+      }
+      // The ray starts inside of the shape.
+      output.fraction = 0.0;
+      output.normal = Vec2.ZERO;
+    }
+  }
+
+  output.normal.rotT(this.m_alignRot).rot(xf.q);
+  return true;
+};
 
 EdgeShape.prototype.computeAABB = function(aabb, xf, childIndex) {
   var v1 = Transform.mulVec2(xf, this.m_vertex1);
   var v2 = Transform.mulVec2(xf, this.m_vertex2);
 
   aabb.combinePoints(v1, v2);
-  aabb.extend(this.m_radius)
+  aabb.extend(this.m_radius + this.m_edgeRadius);
 }
 
 EdgeShape.prototype.computeMass = function(massData, density) {
@@ -6315,7 +6609,7 @@ EdgeShape.prototype.computeDistanceProxy = function(proxy) {
   proxy.m_vertices.push(this.m_vertex1);
   proxy.m_vertices.push(this.m_vertex2);
   proxy.m_count = 2;
-  proxy.m_radius = this.m_radius;
+  proxy.m_radius = this.m_radius + this.m_edgeRadius;
 };
 
 
@@ -8077,7 +8371,7 @@ ChainShape.TYPE = 'chain';
  * 
  * WARNING: The chain will not collide properly if there are self-intersections.
  */
-function ChainShape(vertices, loop) {
+function ChainShape(vertices, loop, radius) {
   if (!(this instanceof ChainShape)) {
     return new ChainShape(vertices, loop);
   }
@@ -8092,6 +8386,7 @@ function ChainShape(vertices, loop) {
   this.m_nextVertex = null;
   this.m_hasPrevVertex = false;
   this.m_hasNextVertex = false;
+  this.m_edgeRadius = radius > 0.0 ? radius : 0.0;
 
   if (vertices && vertices.length) {
     if (loop) {
@@ -8114,14 +8409,14 @@ function ChainShape(vertices, loop) {
  * @param count the vertex count
  */
 ChainShape.prototype._createLoop = function(vertices) {
-  _ASSERT && common.assert(this.m_vertices.length == 0 && this.m_count == 0);
+  /*_ASSERT && common.assert(this.m_vertices.length == 0 && this.m_count == 0);
   _ASSERT && common.assert(vertices.length >= 3);
   for (var i = 1; i < vertices.length; ++i) {
     var v1 = vertices[i - 1];
     var v2 = vertices[i];
     // If the code crashes here, it means your vertices are too close together.
     _ASSERT && common.assert(Vec2.distanceSquared(v1, v2) > Settings.linearSlopSquared);
-  }
+  }*/
 
   this.m_vertices.length = 0;
   this.m_count = vertices.length + 1;
@@ -8208,6 +8503,7 @@ ChainShape.prototype.getChildEdge = function(edge, childIndex) {
   _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count - 1);
   edge.m_type = EdgeShape.TYPE;
   edge.m_radius = this.m_radius;
+  edge.m_edgeRadius = this.m_edgeRadius;
 
   edge.m_vertex1 = this.m_vertices[childIndex];
   edge.m_vertex2 = this.m_vertices[childIndex + 1];
@@ -8238,17 +8534,28 @@ ChainShape.prototype.getVertex = function(index) {
   }
 }
 
-/**
- * This always return false.
- */
 ChainShape.prototype.testPoint = function(xf, p) {
+  if (this.m_edgeRadius <= 0.0 || this.m_count < 2) {
+    return false;
+  }
+  var vertices = this.m_vertices;
+  var edgeShape = new EdgeShape(vertices[0], vertices[1], this.m_edgeRadius);
+  if (edgeShape.testPoint(xf, p)) {
+    return true;
+  }
+  for (var count = this.m_count, i = 2; i < count; ++i) {
+    edgeShape._set(vertices[i - 1], vertices[i]);
+    if (edgeShape.testPoint(xf, p)) {
+      return true;
+    }
+  }
   return false;
 }
 
 ChainShape.prototype.rayCast = function(output, input, xf, childIndex) {
   _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count);
 
-  var edgeShape = new EdgeShape(this.getVertex(childIndex), this.getVertex(childIndex + 1));
+  var edgeShape = new EdgeShape(this.getVertex(childIndex), this.getVertex(childIndex + 1), this.m_edgeRadius);
   return edgeShape.rayCast(output, input, xf, 0);
 }
 
@@ -8259,6 +8566,7 @@ ChainShape.prototype.computeAABB = function(aabb, xf, childIndex) {
   var v2 = Transform.mulVec2(xf, this.getVertex(childIndex + 1));
 
   aabb.combinePoints(v1, v2);
+  aabb.extend(this.m_radius + this.m_edgeRadius);
 }
 
 /**
@@ -8276,7 +8584,7 @@ ChainShape.prototype.computeDistanceProxy = function(proxy, childIndex) {
   proxy.m_buffer[1] = this.getVertex(childIndex + 1);
   proxy.m_vertices = proxy.m_buffer;
   proxy.m_count = 2;
-  proxy.m_radius = this.m_radius;
+  proxy.m_radius = this.m_radius + this.m_edgeRadius;
 };
 
 /***/ }),
@@ -14374,8 +14682,7 @@ var CircleShape = __webpack_require__(22);
 Contact.addType(EdgeShape.TYPE, CircleShape.TYPE, EdgeCircleContact);
 Contact.addType(ChainShape.TYPE, CircleShape.TYPE, ChainCircleContact);
 
-function EdgeCircleContact(manifold, xfA, fixtureA, indexA, xfB, fixtureB,
-    indexB) {
+function EdgeCircleContact(manifold, xfA, fixtureA, indexA, xfB, fixtureB, indexB) {
   _ASSERT && common.assert(fixtureA.getType() == EdgeShape.TYPE);
   _ASSERT && common.assert(fixtureB.getType() == CircleShape.TYPE);
 
@@ -14385,8 +14692,7 @@ function EdgeCircleContact(manifold, xfA, fixtureA, indexA, xfB, fixtureB,
   CollideEdgeCircle(manifold, shapeA, xfA, shapeB, xfB);
 }
 
-function ChainCircleContact(manifold, xfA, fixtureA, indexA, xfB, fixtureB,
-    indexB) {
+function ChainCircleContact(manifold, xfA, fixtureA, indexA, xfB, fixtureB, indexB) {
   _ASSERT && common.assert(fixtureA.getType() == ChainShape.TYPE);
   _ASSERT && common.assert(fixtureB.getType() == CircleShape.TYPE);
 
@@ -14416,7 +14722,7 @@ function CollideEdgeCircle(manifold, edgeA, xfA, circleB, xfB) {
   var u = Vec2.dot(e, Vec2.sub(B, Q));
   var v = Vec2.dot(e, Vec2.sub(Q, A));
 
-  var radius = edgeA.m_radius + circleB.m_radius;
+  var radius = edgeA.m_radius + edgeA.m_edgeRadius + circleB.m_radius;
 
   // Region A
   if (v <= 0.0) {
@@ -15012,11 +15318,6 @@ var e_unknown = -1;
 var e_edgeA = 1;
 var e_edgeB = 2;
 
-// VertexType unused?
-var e_isolated = 0;
-var e_concave = 1;
-var e_convex = 2;
-
 // This structure is used to keep track of the best separating axis.
 function EPAxis() {
   this.type; // Type
@@ -15049,7 +15350,7 @@ var polygonBA = new TempPolygon();
 var rf = new ReferenceFace();
 
 /**
- * This function collides and edge and a polygon, taking into account edge
+ * This function collides edge and a polygon, taking into account edge
  * adjacency.
  */
 function CollideEdgePolygon(manifold, edgeA, xfA, polygonB, xfB) {
@@ -15062,8 +15363,6 @@ function CollideEdgePolygon(manifold, edgeA, xfA, polygonB, xfB) {
   // 6. Visit each separating axes, only accept axes within the range
   // 7. Return if _any_ axis indicates separation
   // 8. Clip
-
-  var m_type1, m_type2; // VertexType unused?
 
   var xf = Transform.mulTXf(xfA, xfB);
 
@@ -15224,7 +15523,7 @@ function CollideEdgePolygon(manifold, edgeA, xfA, polygonB, xfB) {
     polygonBA.normals[i] = Rot.mulVec2(xf.q, polygonB.m_normals[i]);
   }
 
-  var radius = 2.0 * Settings.polygonRadius;
+  var radius = Settings.polygonRadius + edgeA.m_radius + edgeA.m_edgeRadius;
 
   manifold.pointCount = 0;
 
