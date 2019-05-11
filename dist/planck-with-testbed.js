@@ -6185,6 +6185,7 @@ function EdgeShape(v1, v2, radius) {
 
   if (radius > 0.0) {
     this.m_edgeRadius = radius;
+    this.m_radius += radius;
     this.m_noAlignRot = true; // This rotation is used to align edge to y axis,
                               // so v1 is in origin and (v1, v2) is codirectional with y.
   } else {
@@ -6596,7 +6597,7 @@ EdgeShape.prototype.computeAABB = function(aabb, xf, childIndex) {
   var v2 = Transform.mulVec2(xf, this.m_vertex2);
 
   aabb.combinePoints(v1, v2);
-  aabb.extend(this.m_radius + this.m_edgeRadius);
+  aabb.extend(this.m_radius);
 }
 
 EdgeShape.prototype.computeMass = function(massData, density) {
@@ -6609,7 +6610,7 @@ EdgeShape.prototype.computeDistanceProxy = function(proxy) {
   proxy.m_vertices.push(this.m_vertex1);
   proxy.m_vertices.push(this.m_vertex2);
   proxy.m_count = 2;
-  proxy.m_radius = this.m_radius + this.m_edgeRadius;
+  proxy.m_radius = this.m_radius;
 };
 
 
@@ -8407,7 +8408,12 @@ function ChainShape(vertices, loop, radius) {
   this.m_nextVertex = null;
   this.m_hasPrevVertex = false;
   this.m_hasNextVertex = false;
-  this.m_edgeRadius = radius > 0.0 ? radius : 0.0;
+  if (radius > 0.0) {
+    this.m_edgeRadius = radius;
+    this.m_radius += radius;
+  } else {
+    this.m_edgeRadius = 0.0;
+  }
 
   if (vertices && vertices.length) {
     if (loop) {
@@ -8587,7 +8593,7 @@ ChainShape.prototype.computeAABB = function(aabb, xf, childIndex) {
   var v2 = Transform.mulVec2(xf, this.getVertex(childIndex + 1));
 
   aabb.combinePoints(v1, v2);
-  aabb.extend(this.m_radius + this.m_edgeRadius);
+  aabb.extend(this.m_radius);
 }
 
 /**
@@ -8605,7 +8611,7 @@ ChainShape.prototype.computeDistanceProxy = function(proxy, childIndex) {
   proxy.m_buffer[1] = this.getVertex(childIndex + 1);
   proxy.m_vertices = proxy.m_buffer;
   proxy.m_count = 2;
-  proxy.m_radius = this.m_radius + this.m_edgeRadius;
+  proxy.m_radius = this.m_radius;
 };
 
 
@@ -14744,7 +14750,7 @@ function CollideEdgeCircle(manifold, edgeA, xfA, circleB, xfB) {
   var u = Vec2.dot(e, Vec2.sub(B, Q));
   var v = Vec2.dot(e, Vec2.sub(Q, A));
 
-  var radius = edgeA.m_radius + edgeA.m_edgeRadius + circleB.m_radius;
+  var radius = edgeA.m_radius + circleB.m_radius;
 
   // Region A
   if (v <= 0.0) {
@@ -14914,11 +14920,12 @@ function FindMaxSeparation(poly1, xf1, poly2, xf2) {
     // Get poly1 normal in frame2.
     var n = Rot.mulVec2(xf.q, n1s[i]);
     var v1 = Transform.mulVec2(xf, v1s[i]);
+    var offset = Vec2.dot(n, v1);
 
     // Find deepest point for normal i.
     var si = Infinity;
     for (var j = 0; j < count2; ++j) {
-      var sij = Vec2.dot(n, v2s[j]) - Vec2.dot(n, v1);
+      var sij = Vec2.dot(n, v2s[j]) - offset;
       if (sij < si) {
         si = sij;
       }
@@ -15545,7 +15552,7 @@ function CollideEdgePolygon(manifold, edgeA, xfA, polygonB, xfB) {
     polygonBA.normals[i] = Rot.mulVec2(xf.q, polygonB.m_normals[i]);
   }
 
-  var radius = Settings.polygonRadius + edgeA.m_radius + edgeA.m_edgeRadius;
+  var radius = edgeA.m_radius + polygonB.m_radius;
 
   manifold.pointCount = 0;
 
