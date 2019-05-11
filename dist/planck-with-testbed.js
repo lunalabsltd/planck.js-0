@@ -8118,6 +8118,27 @@ Body.prototype.applyLinearImpulse = function(impulse, point, wake) {
 };
 
 /**
+ * Apply an impulse to the center of mass. This immediately modifies the velocity.
+ * This wakes up the body.
+ * 
+ * @param impulse The world impulse vector, usually in N-seconds or kg-m/s.
+ * @param wake Also wake up the body
+ */
+Body.prototype.applyLinearImpulseToCenter = function(impulse, wake) {
+  if (this.m_type != dynamicBody) {
+    return;
+  }
+  if (wake && this.m_awakeFlag == false) {
+    this.setAwake(true);
+  }
+
+  // Don't accumulate velocity if the body is sleeping
+  if (this.m_awakeFlag) {
+    this.m_linearVelocity.addMul(this.m_invMass, impulse);
+  }
+};
+
+/**
  * Apply an angular impulse.
  * 
  * @param impulse The angular impulse in units of kg*m*m/s
@@ -8586,6 +8607,7 @@ ChainShape.prototype.computeDistanceProxy = function(proxy, childIndex) {
   proxy.m_count = 2;
   proxy.m_radius = this.m_radius + this.m_edgeRadius;
 };
+
 
 /***/ }),
 /* 29 */
