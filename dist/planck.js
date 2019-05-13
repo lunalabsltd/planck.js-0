@@ -7619,7 +7619,7 @@ ChainShape.prototype._createChain = function(vertices) {
     _ASSERT && common.assert(Vec2.distanceSquared(v1, v2) > Settings.linearSlopSquared);
   }*/
 
-  this.m_count = vertices.length;
+  this.m_count = this.m_vertices.length = vertices.length;
   for (var i = 0; i < vertices.length; ++i) {
     this.m_vertices[i] = vertices[i].clone();
   }
