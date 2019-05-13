@@ -4738,7 +4738,7 @@ var AABB = __webpack_require__(16);
 var Settings = __webpack_require__(5);
 var Shape = __webpack_require__(15);
 
-var p = new Vec2(), p1 = new Vec2(), p2 = new Vec2(), v1 = new Vec2(), v2 = new Vec2(), d = new Vec2();
+var p = new Vec2(), p1 = new Vec2(), p2 = new Vec2(), v1 = new Vec2(), v2 = new Vec2(), d = new Vec2(), rot = new Rot();
 
 PolygonShape._super = Shape;
 PolygonShape.prototype = create(PolygonShape._super.prototype);
@@ -4984,33 +4984,46 @@ PolygonShape.prototype._set = function(vertices) {
  * @private
  */
 PolygonShape.prototype._setAsBox = function(hx, hy, center, angle) {
-  this.m_vertices[0] = Vec2.neo(-hx, -hy);
-  this.m_vertices[1] = Vec2.neo(hx, -hy);
-  this.m_vertices[2] = Vec2.neo(hx, hy);
-  this.m_vertices[3] = Vec2.neo(-hx, hy);
-
-  this.m_normals[0] = Vec2.neo(0.0, -1.0);
-  this.m_normals[1] = Vec2.neo(1.0, 0.0);
-  this.m_normals[2] = Vec2.neo(0.0, 1.0);
-  this.m_normals[3] = Vec2.neo(-1.0, 0.0);
+  if (this.m_vertices[3]) {
+    this.m_vertices[0].set(-hx, -hy);
+    this.m_vertices[1].set(hx, -hy);
+    this.m_vertices[2].set(hx, hy);
+    this.m_vertices[3].set(-hx, hy);
+  } else {
+    this.m_vertices[0] = Vec2.neo(-hx, -hy);
+    this.m_vertices[1] = Vec2.neo(hx, -hy);
+    this.m_vertices[2] = Vec2.neo(hx, hy);
+    this.m_vertices[3] = Vec2.neo(-hx, hy);
+  }
+  if (this.m_normals[3]) {
+    this.m_normals[0].set(0.0, -1.0);
+    this.m_normals[1].set(1.0, 0.0);
+    this.m_normals[2].set(0.0, 1.0);
+    this.m_normals[3].set(-1.0, 0.0);
+  } else {
+    this.m_normals[0] = Vec2.neo(0.0, -1.0);
+    this.m_normals[1] = Vec2.neo(1.0, 0.0);
+    this.m_normals[2] = Vec2.neo(0.0, 1.0);
+    this.m_normals[3] = Vec2.neo(-1.0, 0.0);
+  }
 
   this.m_count = 4;
 
-  if (Vec2.isValid(center)) {
+  if (Vec2.isValid(center) &&
+    (center.x < -Math.EPSILON || Math.EPSILON < center.x ||
+    center.y < -Math.EPSILON || Math.EPSILON < center.y)) {
+    
     angle = angle || 0;
 
     this.m_centroid.set(center);
-
-    var xf = Transform.identity();
-    xf.p.set(center);
-    xf.q.set(angle);
+    rot.set(angle);
 
     var maxX = -Infinity, maxY = maxX;
 
     // Transform vertices and normals.
     for (var v, i = 0; i < this.m_count; ++i) {
-      v = this.m_vertices[i] = Transform.mulVec2(xf, this.m_vertices[i]);
-      this.m_normals[i] = Rot.mulVec2(xf.q, this.m_normals[i]);
+      v = this.m_vertices[i] = this.m_vertices[i].rot(rot).add(center);
+      this.m_normals[i] = this.m_normals[i].rot(rot);
 
       if (v.x > maxX) {
         maxX = v.x;
@@ -8466,14 +8479,14 @@ ChainShape.prototype._createLoop = function(vertices) {
  * @param count the vertex count
  */
 ChainShape.prototype._createChain = function(vertices) {
-  _ASSERT && common.assert(this.m_vertices.length == 0 && this.m_count == 0);
+  /*_ASSERT && common.assert(this.m_vertices.length == 0 && this.m_count == 0);
   _ASSERT && common.assert(vertices.length >= 2);
   for (var i = 1; i < vertices.length; ++i) {
     // If the code crashes here, it means your vertices are too close together.
     var v1 = vertices[i - 1];
     var v2 = vertices[i];
     _ASSERT && common.assert(Vec2.distanceSquared(v1, v2) > Settings.linearSlopSquared);
-  }
+  }*/
 
   this.m_count = vertices.length;
   for (var i = 0; i < vertices.length; ++i) {
