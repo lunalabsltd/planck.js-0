@@ -2388,6 +2388,7 @@ function Joint(def, bodyA, bodyB) {
   this.m_edgeB = new JointEdge();
 
   this.m_islandFlag = false;
+  this.m_activeFlag = def.active;
   this.m_userData = def.userData;
 };
 
@@ -2397,8 +2398,12 @@ function Joint(def, bodyA, bodyB) {
  * @returns {boolean}
  */
 Joint.prototype.isActive = function() {
-  return this.m_bodyA.isActive() && this.m_bodyB.isActive();
+  return this.m_activeFlag && this.m_bodyA.isActive() && this.m_bodyB.isActive();
 }
+
+Joint.prototype.setActive = function(flag) {
+  this.m_activeFlag = flag;
+};
 
 /**
  * Get the type of the concrete joint.
@@ -10772,7 +10777,8 @@ var DEFAULTS = {
   maxMotorTorque : 0.0,
   motorSpeed : 0.0,
   enableLimit : false,
-  enableMotor : false
+  enableMotor : false,
+  active: true
 };
 
 /**
@@ -11399,7 +11405,8 @@ var DEFAULTS = {
   upperTranslation : 0.0,
   enableMotor : false,
   maxMotorForce : 0.0,
-  motorSpeed : 0.0
+  motorSpeed : 0.0,
+  active: true
 };
 
 /**
@@ -12660,7 +12667,7 @@ Solver.prototype.solveWorld = function(step) {
 
       // Search all joints connect to this body.
       for (var je = b.m_jointList; je; je = je.next) {
-        if (je.joint.m_islandFlag == true) {
+        if (je.joint.m_islandFlag == true || je.joint.m_activeFlag == false) {
           continue;
         }
 
@@ -14643,7 +14650,8 @@ DistanceJoint.prototype = create(DistanceJoint._super.prototype);
 
 var DEFAULTS = {
   frequencyHz : 0.0,
-  dampingRatio : 0.0
+  dampingRatio : 0.0,
+  active: true
 };
 
 /**
@@ -14993,6 +15001,7 @@ FrictionJoint.prototype = create(FrictionJoint._super.prototype);
 var DEFAULTS = {
   maxForce : 0.0,
   maxTorque : 0.0,
+  active: true
 };
 
 /**
@@ -15313,7 +15322,8 @@ GearJoint.prototype = create(GearJoint._super.prototype);
  */
 
 var DEFAULTS = {
-  ratio : 1.0
+  ratio : 1.0,
+  active: true
 };
 
 /**
@@ -15795,7 +15805,8 @@ MotorJoint.prototype = create(MotorJoint._super.prototype);
 var DEFAULTS = {
   maxForce : 1.0,
   maxTorque : 1.0,
-  correctionFactor : 0.3
+  correctionFactor : 0.3,
+  active: true
 };
 
 /**
@@ -16167,7 +16178,8 @@ MouseJoint.prototype = create(MouseJoint._super.prototype);
 var DEFAULTS = {
   maxForce : 0.0,
   frequencyHz : 5.0,
-  dampingRatio : 0.7
+  dampingRatio : 0.7,
+  active: true
 };
 
 /**
@@ -16472,7 +16484,8 @@ PulleyJoint.prototype = create(PulleyJoint._super.prototype);
  * @prop {float} lengthB The reference length for the segment attached to bodyB.
  */
 var PulleyJointDef = {
-  collideConnected : true
+  collideConnected : true,
+  active: true
 };
 
 /**
@@ -16859,6 +16872,7 @@ RopeJoint.prototype = create(RopeJoint._super.prototype);
 
 var DEFAULTS = {
   maxLength : 0.0,
+  active: true
 };
 
 /**
@@ -17180,6 +17194,7 @@ WeldJoint.prototype = create(WeldJoint._super.prototype);
 var DEFAULTS = {
   frequencyHz : 0.0,
   dampingRatio : 0.0,
+  active: true
 }
 
 /**
@@ -17623,6 +17638,7 @@ var DEFAULTS = {
   motorSpeed : 0.0,
   frequencyHz : 2.0,
   dampingRatio : 0.7,
+  active: true
 };
 
 /**
