@@ -272,6 +272,11 @@ function Vec2(x, y) {
   _ASSERT && Vec2.assert(this);
 }
 
+/**
+ * Creates zero vector.
+ *
+ * @return {Vec2} Zero vector.
+ */
 Vec2.zero = function() {
   var obj = Object.create(Vec2.prototype);
   obj.x = 0;
@@ -279,6 +284,9 @@ Vec2.zero = function() {
   return obj;
 };
 
+/**
+ * Zero vector for internal usage. Must not be modified.
+ */
 Vec2.ZERO = Vec2.zero();
 
 Vec2.neo = function(x, y) {
@@ -531,6 +539,12 @@ Vec2.prototype.normalize = function() {
   return length;
 }
 
+/**
+ * Rotates current vector inline by specified rotation angle.
+ *
+ * @param {Rot} rot Specifies rotation angle.
+ * @return {Vec2} Current vector.
+ */
 Vec2.prototype.rot = function(rot) {
   var x = this.x;
   var y = this.y;
@@ -539,6 +553,12 @@ Vec2.prototype.rot = function(rot) {
   return this;
 };
 
+/**
+ * Rotates current vector inline by rotation angle negative to the specified one.
+ *
+ * @param {Rot} rot Specifies rotation angle.
+ * @return {Vec2} Current vector.
+ */
 Vec2.prototype.rotT = function(rot) {
   var x = this.x;
   var y = this.y;
@@ -2393,7 +2413,7 @@ function Joint(def, bodyA, bodyB) {
 };
 
 /**
- * Short-cut function to determine if either body is inactive.
+ * Short-cut function to determine if either body is inactive or joint itself is inactive.
  * 
  * @returns {boolean}
  */
@@ -2401,6 +2421,11 @@ Joint.prototype.isActive = function() {
   return this.m_activeFlag && this.m_bodyA.isActive() && this.m_bodyB.isActive();
 }
 
+/**
+ * Changes active status.
+ *
+ * @param {boolean} flag This joint will be used in physics callculations if true, and skipped if false.
+ */
 Joint.prototype.setActive = function(flag) {
   this.m_activeFlag = flag;
 };
@@ -4869,7 +4894,7 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
       var a = numerator / denominator;
       p.set(d).mul(a).add(p1);
 
-      v2.set( this.m_vertices[ i + 1 < this.m_count  ? i + 1 : 0 ] ); // Set second vertex.
+      v2.set( this.m_vertices[ i + 1 < this.m_count ? i + 1 : 0 ] ); // Set second vertex.
       var intersects = Vec2.dot(v1.sub(p), v2.sub(p)) < 0.0; // If ray line intersects polygon side.
       if (!intersects) {
         continue;
@@ -5960,6 +5985,8 @@ EdgeShape.TYPE = 'edge';
  * A line segment (edge) shape. These can be connected in chains or loops to
  * other edge shapes. The connectivity information is used to ensure correct
  * contact normals.
+ *
+ * @param {Number} radius Radius extending around the edge.
  */
 function EdgeShape(v1, v2, radius) {
   if (!(this instanceof EdgeShape)) {
@@ -5978,7 +6005,7 @@ function EdgeShape(v1, v2, radius) {
   if (radius > 0.0) {
     this.m_edgeRadius = radius;
     this.m_radius += radius;
-    this.m_noAlignRot = true; // This rotation is used to align edge to y axis,
+    this.m_noAlignRot = true; // This rotation is used to align the edge to y axis,
                               // so v1 is in origin and (v1, v2) is codirectional with y.
   } else {
     this.m_edgeRadius = 0.0;
@@ -6022,7 +6049,7 @@ EdgeShape.prototype._set = function(v1, v2) {
   this.m_vertex2.set(v2);
   this.m_hasVertex0 = false;
   this.m_hasVertex3 = false;
-  this.m_noAlignMatrix = true;
+  this.m_noAlignRot = true;
   return this;
 }
 
@@ -6047,6 +6074,13 @@ EdgeShape.prototype.getChildCount = function() {
   return 1;
 }
 
+/**
+ * Test a point for containment in this shape.
+ * 
+ * @param {Transform} xf The shape world transform.
+ * @param {Vec2} p A point in world coordinates.
+ * @return {boolean} True if the point is included into the shape, false otherwise.
+ */
 EdgeShape.prototype.testPoint = function(xf, p) {
   if (this.m_edgeRadius <= 0.0) { // No radius => we never inside.
     return false;
@@ -6073,6 +6107,11 @@ EdgeShape.prototype.testPoint = function(xf, p) {
   return -radius < p.x && p.x < radius;
 };
 
+/**
+ * Creates a rotation to be used to align the edge to y axis.
+ *
+ * @return {Rot} Rotation used to align points.
+ */
 EdgeShape.prototype._getAlignRot = function() {
   var rot = this.m_alignRot = this.m_alignRot || new Rot();
   this.m_noAlignRot = false;
@@ -6095,6 +6134,12 @@ EdgeShape.prototype._getAlignRot = function() {
   return rot;
 };
 
+/**
+ * Inline-transforms provided point so it's in coordinate system where current edge is aligned to y axis.
+ *
+ * @param {Vec2} p Point.
+ * @return {Vec2} The transformed point.
+ */
 EdgeShape.prototype._alignPoint = function(p) {
   return p.sub(this.m_vertex1).rot(this.m_alignRot);
 };
@@ -6168,6 +6213,13 @@ EdgeShape.prototype.rayCast = function(output, input, xf, childIndex) {
   return true;
 };
 
+/**
+ * Used internally to do ray casts if current edge has positive radius.
+ *
+ * @param {RayCastOutput} output The ray-cast results.
+ * @param {RayCastInput} input The ray-cast input parameters.
+ * @param {Transform} transform The transform to be applied to the shape.
+ */
 EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
   if (this.m_noAlignRot) {
     this.m_alignRot = this._getAlignRot();
@@ -7541,6 +7593,8 @@ ChainShape.TYPE = 'chain';
  * smooth collisions.
  * 
  * WARNING: The chain will not collide properly if there are self-intersections.
+ *
+ * @param {Number} radius Radius extending around the chain.
  */
 function ChainShape(vertices, loop, radius) {
   if (!(this instanceof ChainShape)) {
@@ -7710,6 +7764,13 @@ ChainShape.prototype.getVertex = function(index) {
   }
 }
 
+/**
+ * Test a point for containment in this shape.
+ * 
+ * @param {Transform} xf The shape world transform.
+ * @param {Vec2} p A point in world coordinates.
+ * @return {boolean} True if the point is included into the shape, false otherwise.
+ */
 ChainShape.prototype.testPoint = function(xf, p) {
   if (this.m_edgeRadius <= 0.0 || this.m_count < 2) {
     return false;
@@ -8173,10 +8234,20 @@ Fixture.prototype.shouldCollide = function(that) {
   return collide;
 }
 
+/**
+ * If this fixture is used in physics calculations.
+ *
+ * @return {boolean} True if active, false otherwise.
+ */
 Fixture.prototype.isActive = function() {
   return this.m_activeFlag;
 }
 
+/**
+ * Changes active status.
+ *
+ * @param {boolean} flag This fixture will be used in physics callculations if true, and skipped if false.
+ */
 Fixture.prototype.setActive = function(flag) {
   if (flag == this.m_activeFlag) {
     return;
