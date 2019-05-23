@@ -7725,7 +7725,7 @@ ChainShape.prototype._clone = function() {
 
 ChainShape.prototype.getChildCount = function() {
   // edge count = vertex count - 1
-  return this.m_count - 1;
+  return this.m_count > 0 ? this.m_count - 1 : 0;
 }
 
 // Get a child edge.
