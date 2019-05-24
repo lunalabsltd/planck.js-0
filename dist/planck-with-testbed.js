@@ -9116,11 +9116,20 @@ Fixture.prototype.getAABB = function(childIndex) {
  * These support body activation/deactivation.
  */
 Fixture.prototype.createProxies = function(broadPhase, xf) {
-  _ASSERT && common.assert(this.m_proxyCount == 0);
+  broadPhase = broadPhase || this.m_body.getWorld().m_broadPhase;
+  xf = xf || this.m_body.getTransform();
+
+  this.m_proxyCount = this.m_shape.getChildCount();
+
+  for (var i = this.m_proxies.length - 1; i >= this.m_proxyCount; --i) {
+    var proxy = this.m_proxies[i];
+    broadPhase.destroyProxy(proxy.proxyId);
+    proxy.proxyId = null;
+  }
+
+  this.m_proxies.length = this.m_proxyCount;
 
   // Create proxies in the broad-phase.
-  this.m_proxies.length = this.m_proxyCount = this.m_shape.getChildCount();
-
   for (var i = 0; i < this.m_proxyCount; ++i) {
     var proxy = this.m_proxies[i] = this.m_proxies[i] || new FixtureProxy(this, i);
     this.m_shape.computeAABB(proxy.aabb, xf, i);
