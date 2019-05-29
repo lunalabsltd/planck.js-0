@@ -8271,7 +8271,7 @@ Body.prototype.createFixture = function(shape, fixdef) {
 
   var fixture = new Fixture(this, shape, fixdef);
 
-  if (this.m_activeFlag && fixture.m_activeFlag) {
+  if (this.m_activeFlag && fixture.isActive()) {
     var broadPhase = this.m_world.m_broadPhase;
     fixture.createProxies(broadPhase, this.m_xf);
   }
@@ -8286,7 +8286,7 @@ Body.prototype.createFixture = function(shape, fixdef) {
 
   // Let the world know we have a new fixture. If fixture is active this will cause new contacts
   // to be created at the beginning of the next time step.
-  this.m_world.m_newFixture = true;
+  this.m_world.m_newFixture = fixture.isActive();
 
   return fixture
 };
@@ -8955,9 +8955,11 @@ function Fixture(body, shape, def) {
   this.m_proxies = [];
   this.m_proxyCount = 0;
 
-  var childCount = this.m_shape.getChildCount();
-  for (var i = 0; i < childCount; ++i) {
-    this.m_proxies[i] = new FixtureProxy(this, i);
+  if (this.m_activeFlag) {
+    var childCount = this.m_proxyCount = this.m_shape.getChildCount();
+    for (var i = 0; i < childCount; ++i) {
+      this.m_proxies[i] = new FixtureProxy(this, i);
+    }
   }
 
   this.m_userData = def.userData;
@@ -9116,6 +9118,10 @@ Fixture.prototype.getAABB = function(childIndex) {
  * These support body activation/deactivation.
  */
 Fixture.prototype.createProxies = function(broadPhase, xf) {
+  if (!this.m_activeFlag) {
+    return;
+  }
+
   broadPhase = broadPhase || this.m_body.getWorld().m_broadPhase;
   xf = xf || this.m_body.getTransform();
 
@@ -9153,6 +9159,10 @@ Fixture.prototype.destroyProxies = function(broadPhase) {
  * next transformation).
  */
 Fixture.prototype.synchronize = function(broadPhase, xf1, xf2) {
+  if (!this.m_activeFlag) {
+    return;
+  }
+
   for (var i = 0; i < this.m_proxyCount; ++i) {
     var proxy = this.m_proxies[i];
     // Compute an AABB that covers the swept shape (may miss some rotation
@@ -9199,7 +9209,7 @@ Fixture.prototype.getFilterMaskBits = function() {
  * ContactFilter.
  */
 Fixture.prototype.refilter = function() {
-  if (this.m_body == null) {
+  if (this.m_body == null || !this.m_activeFlag) {
     return;
   }
 
@@ -13927,9 +13937,16 @@ Solver.prototype.solveWorld = function(step) {
           continue;
         }
 
+        var fixtureA = contact.m_fixtureA;
+        var fixtureB = contact.m_fixtureB;
+
+        if (!(fixtureA.isActive() && fixtureB.isActive())) {
+          continue;
+        }
+
         // Skip sensors.
-        var sensorA = contact.m_fixtureA.m_isSensor;
-        var sensorB = contact.m_fixtureB.m_isSensor;
+        var sensorA = fixtureA.m_isSensor;
+        var sensorB = fixtureB.m_isSensor;
         if (sensorA || sensorB) {
           continue;
         }
@@ -14257,6 +14274,10 @@ Solver.prototype.solveWorldTOI = function(step) {
       } else {
         var fA = c.getFixtureA();
         var fB = c.getFixtureB();
+
+        if (!(fA.isActive() && fB.isActive())) {
+          continue;
+        }
 
         // Is there a sensor?
         if (fA.isSensor() || fB.isSensor()) {
