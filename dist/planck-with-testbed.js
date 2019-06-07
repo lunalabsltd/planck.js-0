@@ -9614,27 +9614,27 @@ World.prototype.queryAABB = function(aabb, queryCallback) {
  * @param point2 The ray ending point
  */
 World.prototype.rayCast = function(point1, point2, reportFixtureCallback) {
-  _ASSERT && common.assert(typeof reportFixtureCallback === 'function');
-  var broadPhase = this.m_broadPhase;
+  World._reportFixtureCallback = reportFixtureCallback;
+  this.m_broadPhase.rayCast(null, this._raycastCallback, point1, point2, 1.0);
+  World._reportFixtureCallback = undefined;
+};
 
-  this.m_broadPhase.rayCast({
-    maxFraction : 1.0,
-    p1 : point1,
-    p2 : point2
-  }, function(input, proxyId) { // TODO GC
-    var proxy = broadPhase.getUserData(proxyId); // FixtureProxy
-    var fixture = proxy.fixture;
-    var index = proxy.childIndex;
-    var output = {}; // TODO GC
-    var hit = fixture.rayCast(output, input, index);
-    if (hit) {
-      var fraction = output.fraction;
-      var point = Vec2.add(Vec2.mul((1.0 - fraction), input.p1), Vec2.mul(fraction, input.p2));
-      return reportFixtureCallback(fixture, point, output.normal, fraction);
-    }
-    return input.maxFraction;
-  });
-}
+/**
+ * A function that is called for each proxy that is hit by the ray.
+ * Used internally.
+ */
+World.prototype._raycastCallback = function(input, proxyId, proxy) {
+  var fixture = proxy.fixture;
+  var index = proxy.childIndex;
+  var output = {}; // TODO GC
+  var hit = fixture.rayCast(output, input, index);
+  if (hit) {
+    var fraction = output.fraction;
+    var point = input.p1.mul(1.0 - fraction).add(input.p2.mul(fraction));
+    return World._reportFixtureCallback(fixture, point, output.normal, fraction);
+  }
+  return input.maxFraction;
+};
 
 /**
  * Get the number of broad-phase proxies.
@@ -11162,11 +11162,14 @@ DynamicTree.prototype.query = function(aabb, queryCallback) {
  *          maxFraction * (p2 - p1).
  * @param rayCastCallback A function that is called for each proxy that is hit by
  *          the ray.
+ * @param p1
+ * @param p2
+ * @param maxFraction
  */
-DynamicTree.prototype.rayCast = function(input, rayCastCallback) { // TODO GC
+DynamicTree.prototype.rayCast = function(input, rayCastCallback, p1, p2, maxFraction) { // TODO GC
   _ASSERT && common.assert(typeof rayCastCallback === 'function')
-  var p1 = input.p1;
-  var p2 = input.p2;
+  p1 = p1 || input.p1;
+  p2 = p2 || input.p2;
   var r = Vec2.sub(p2, p1);
   _ASSERT && common.assert(r.lengthSquared() > 0.0);
   r.normalize();
@@ -11178,7 +11181,7 @@ DynamicTree.prototype.rayCast = function(input, rayCastCallback) { // TODO GC
   // Separating axis for segment (Gino, p80).
   // |dot(v, p1 - c)| > dot(|v|, h)
 
-  var maxFraction = input.maxFraction;
+  maxFraction = maxFraction >= 0.0 ? maxFraction : input.maxFraction;
 
   // Build a bounding box for the segment.
   var segmentAABB = new AABB();
@@ -11210,11 +11213,11 @@ DynamicTree.prototype.rayCast = function(input, rayCastCallback) { // TODO GC
     }
 
     if (node.isLeaf()) {
-      subInput.p1 = Vec2.clone(input.p1);
-      subInput.p2 = Vec2.clone(input.p2);
+      subInput.p1 = Vec2.clone(p1);
+      subInput.p2 = Vec2.clone(p2);
       subInput.maxFraction = maxFraction;
 
-      var value = rayCastCallback(subInput, node.id);
+      var value = rayCastCallback(subInput, node.id, node.userData);
 
       if (value == 0.0) {
         // The client has terminated the ray cast.
@@ -13546,9 +13549,12 @@ BroadPhase.prototype.query = function(aabb, queryCallback) {
  *          maxFraction * (p2 - p1).
  * @param rayCastCallback A function that is called for each proxy that is hit by
  *          the ray.
+ * @param p1
+ * @param p2
+ * @param maxFraction
  */
-BroadPhase.prototype.rayCast = function(input, rayCastCallback) {
-  this.m_tree.rayCast(input, rayCastCallback);
+BroadPhase.prototype.rayCast = function(input, rayCastCallback, p1, p2, maxFraction) {
+  this.m_tree.rayCast(input, rayCastCallback, p1, p2, maxFraction);
 }
 
 /**
