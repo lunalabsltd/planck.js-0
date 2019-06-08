@@ -540,6 +540,22 @@ Vec2.prototype.normalize = function() {
 }
 
 /**
+ * Convert this vector into a unit vector.
+ * 
+ * @returns this vector.
+ */
+Vec2.prototype.normal = function() {
+  var length = this.length();
+  if (length < Math.EPSILON) {
+    return this;
+  }
+  var invLength = 1.0 / length;
+  this.x *= invLength;
+  this.y *= invLength;
+  return this;
+};
+
+/**
  * Rotates current vector inline by specified rotation angle.
  *
  * @param {Rot} rot Specifies rotation angle.
@@ -5154,7 +5170,8 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
 
   if (count & 1) { // Half-line intersections number is odd => we start inside.
     output.fraction = 0.0;
-    output.normal = Vec2.ZERO; // we are safe to return a reference as it's coppied in c# wrapper.
+    // we are safe to return a reference as it's coppied in c# wrapper.
+    output.normal = isPoint ? Vec2.ZERO : d.neg().normal().rot(xf.q);
     return true;
   } else if (index >= 0 && !isPoint) {
     output.fraction = lowest;
@@ -6108,15 +6125,15 @@ CircleShape.prototype.rayCast = function(output, input, xf, childIndex) {
   var position = Vec2.add(xf.p, Rot.mulVec2(xf.q, this.m_p));
   var s = Vec2.sub(input.p1, position);
   var b = Vec2.dot(s, s) - this.m_radius * this.m_radius;
+  var r = Vec2.sub(input.p2, input.p1);
 
   if (b < 0.0) {
     output.fraction = 0;
-    output.normal = Vec2.ZERO;
+    output.normal = r.neg().normal();
     return true;
   }
 
   // Solve quadratic equation.
-  var r = Vec2.sub(input.p2, input.p1);
   var c = Vec2.dot(s, r);
   var rr = Vec2.dot(r, r);
   var sigma = c * c - rr * b;
@@ -6133,8 +6150,7 @@ CircleShape.prototype.rayCast = function(output, input, xf, childIndex) {
   if (0.0 <= a && a <= input.maxFraction * rr) {
     a /= rr;
     output.fraction = a;
-    output.normal = Vec2.add(s, Vec2.mul(a, r));
-    output.normal.normalize();
+    output.normal = Vec2.add(s, Vec2.mul(a, r)).normal();
     return true;
   }
 
@@ -6485,7 +6501,7 @@ EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
       output.normal.mul(1.0 / radius);
     } else { // The ray starts between top and bottom.
       output.fraction = 0.0;
-      output.normal = Vec2.ZERO; // Will be coppied in c# wrapper.
+      output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
     }
   } else { // The ray is not parallel to edge y axis.
     var p1x = p1.x;
@@ -6544,7 +6560,7 @@ EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
             discr = k * k - a * c;
 
             if (discr <= 0.0) { // Line doesn't intersect bottom circle or has single intersection point, that should never happen.
-              return null;
+              return false;
             }
 
             discrSqrt = Math.sqrt(discr);
@@ -6557,7 +6573,7 @@ EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
           } // Line intersects cylinder inside of the shape.
         }
         output.fraction = 0.0;
-        output.normal = Vec2.ZERO; // Will be coppied in c# wrapper.
+        output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
       }
     } else if (y1 < 0.0) { // Line intersects cylinder below edge bottom.
       var a = dx * dx + dy * dy;
@@ -6611,7 +6627,7 @@ EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
           } // Line intersects cylinder inside of the shape.
         }
         output.fraction = 0.0;
-        output.normal = Vec2.ZERO; // Will be coppied in c# wrapper.
+        output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
       }
     } else if (t1 >= 0.0) { // The ray intersects cylinder between top and bottom (first intersection point).
       output.fraction = t1;
@@ -6654,7 +6670,7 @@ EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
       }
       // The ray starts inside of the shape.
       output.fraction = 0.0;
-      output.normal = Vec2.ZERO;
+      output.normal = d.neg().normal();
     }
   }
 
