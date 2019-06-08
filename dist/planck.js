@@ -4899,45 +4899,49 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
     // dot(normal, p - v) = 0
     // dot(normal, p1 - v) + a * dot(normal, d) = 0
     // -numerator + a * denominator = 0
+    v1.set(this.m_vertices[i]);
     var normal = this.m_normals[i];
-    var numerator = Vec2.dot( normal, p.set( v1.set(this.m_vertices[i]) ).sub(p1) );
+    var numerator = Vec2.dot( normal, p.set(v1).sub(p1) );
     var denominator = Vec2.dot(normal, d);
 
-    if (denominator == 0.0) { // Ray is parallel to poligon's side.
+    if (-Math.EPSION <= denominator && denominator <= Math.EPSION) { // Ray is parallel to poligon's side.
       continue;
-    } else {
-
-      var a = numerator / denominator;
-      p.set(d).mul(a).add(p1);
-
-      v2.set( this.m_vertices[ i + 1 < this.m_count ? i + 1 : 0 ] ); // Set second vertex.
-      var intersects = Vec2.dot(v1.sub(p), v2.sub(p)) < 0.0; // If ray line intersects polygon side.
-      if (!intersects) {
-        continue;
-      }
-
-      lower = 0.0;
-      upper = maxFraction;
-
-      intersects = lower < a; // If half-line intersects polygon side.
-      if (intersects) {
-        ++count;
-      }
-
-      if (denominator < 0.0 && intersects) { // denominator < 0 <=> ray and normal are opposite.
-        // Increase lower.
-        // The segment enters this half-space.
-        lower = a;
-      } else if (denominator > 0.0 && a < upper) { // denominator > 0 <=> ray and normal are codirectional.
-        // Decrease upper.
-        // The segment exits this half-space.
-        upper = a;
-      }
-
     }
 
-    if (lower <= upper && lower < lowest) {
+    var a = numerator / denominator;
+    p.set(d).mul(a).add(p1);
+
+    v2.set( this.m_vertices[ i + 1 < this.m_count ? i + 1 : 0 ] ); // Set second vertex.
+    var intersects = Vec2.dot(v1.sub(p), v2.sub(p)) < 0.0; // If ray line intersects polygon side.
+    if (!intersects) {
+      continue;
+    }
+
+    lower = 0.0;
+    upper = maxFraction;
+
+    intersects = lower <= a; // If half-line intersects polygon side.
+    if (intersects) {
+      ++count;
+    }
+
+    if (denominator < 0.0 && intersects) { // denominator < 0 <=> ray and normal are opposite.
+      // Increase lower.
+      // The segment enters this half-space.
+      lower = a;
+    } else if (denominator > 0.0 && a < upper) { // denominator > 0 <=> ray and normal are codirectional.
+      // Decrease upper.
+      // The segment exits this half-space.
+      upper = a;
+    } else { // No intersection.
+      continue;
+    }
+
+    if (lower <= upper) {
       index = i; // Save closest intersection.
+      if (a < lowest) {
+        lowest = a;
+      }
     }
 
   }
@@ -6388,7 +6392,7 @@ EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
             discr = k * k - a * c;
 
             if (discr <= 0.0) { // Line doesn't intersect top circle or has single intersection point, that should never happen.
-              return null;
+              return false;
             }
 
             discrSqrt = Math.sqrt(discr);
@@ -8131,15 +8135,13 @@ Fixture.prototype.createProxies = function(broadPhase, xf) {
   broadPhase = broadPhase || this.m_body.getWorld().m_broadPhase;
   xf = xf || this.m_body.getTransform();
 
-  this.m_proxyCount = this.m_shape.getChildCount();
-
-  for (var i = this.m_proxies.length - 1; i >= this.m_proxyCount; --i) {
+  for (var i = 0; i < this.m_proxyCount; ++i) {
     var proxy = this.m_proxies[i];
     broadPhase.destroyProxy(proxy.proxyId);
     proxy.proxyId = null;
   }
 
-  this.m_proxies.length = this.m_proxyCount;
+  this.m_proxies.length = this.m_proxyCount = this.m_shape.getChildCount();
 
   // Create proxies in the broad-phase.
   for (var i = 0; i < this.m_proxyCount; ++i) {
