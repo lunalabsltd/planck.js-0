@@ -2679,6 +2679,17 @@ Shape.prototype.computeMass = function(massData, density) {
 Shape.prototype.computeDistanceProxy = function(proxy) {
 };
 
+/**
+ * Tests if current shape overlaps with a provided shape.
+ *
+ * @param {planck.Shape} shape A shape to test for overlapping with a current one.
+ * @param {Transform} transform The transform applied to the shape.
+ * @param {Number} childIndex The child shape index
+ * @return {Boolean} True if shapes overlap, false otherwise.
+ */
+Shape.prototype.testOverlap = function(transform, childIndex, shape, shapeTransform, shapeChildIndex) {
+};
+
 
 /***/ }),
 /* 16 */
@@ -5828,6 +5839,8 @@ var AABB = __webpack_require__(16);
 var Settings = __webpack_require__(5);
 var Shape = __webpack_require__(15);
 
+var p = new Vec2(), r = new Vec2();
+
 CircleShape._super = Shape;
 CircleShape.prototype = create(CircleShape._super.prototype);
 
@@ -5953,6 +5966,20 @@ CircleShape.prototype.computeDistanceProxy = function(proxy) {
   proxy.m_vertices.push(this.m_p);
   proxy.m_count = 1;
   proxy.m_radius = this.m_radius;
+};
+
+CircleShape.prototype.testOverlap = function(transform, childIndex, shape, shapeTransform, shapeChildIndex) {
+  if (shape.m_type != CircleShape.TYPE) {
+    return; // Only circles are supported.
+  }
+
+  p = p.set(this.m_p).rot(transform.q).add(transform.p);
+  r = r.set(shape.m_p).rot(shapeTransform.q).add(shapeTransform.p);
+
+  var lengthSquared = p.sub(r).lengthSquared();
+  var radiusSum = this.m_radius + shape.m_radius;
+
+  return radiusSum * radiusSum > lengthSquared
 };
 
 
@@ -8300,6 +8327,57 @@ Fixture.prototype.setActive = function(flag) {
   }
 }
 
+/**
+ * @function Fixture~overlapCallback
+ *
+ * @param fixture
+ */
+
+/**
+ * Query the world for all fixtures that potentially overlap current fixture.
+ *
+ * @param {Fixture~overlapCallback} callback Called for each fixture found.
+ */
+Fixture.prototype.queryOverlaps = function(callback) {
+  if (!this.m_activeFlag || this.m_proxyCount == 0) {
+    return;
+  }
+  var world = this.m_body.getWorld();
+  if (world == null) {
+    return;
+  }
+  if (this._reportOverlap == Fixture.prototype._reportOverlap) {
+    var self = this;
+    this._reportOverlap = function(fixture, proxy) {
+      Fixture.prototype._reportOverlap.call(self, fixture, proxy);
+    };
+  }
+  this._overlaps = {};
+  this._overlapCallback = callback;
+  this._transform = this.m_body.getTransform();
+  for (var i = 0; i < this.m_proxyCount; ++i) {
+    this._childIndex = i;
+    world.queryAABB(this.m_proxies[i].aabb, this._reportOverlap);
+  }
+  this._transform = this._childIndex = this._overlaps = this._overlapCallback = callback = null;
+};
+
+/**
+ * Called for each overlapping fixture. Used internally.
+ */
+Fixture.prototype._reportOverlap = function(fixture, proxy) {
+  if (fixture == this) {
+    return true;
+  }
+  var id = fixture.m_proxies[0].proxyId;
+  if (this._overlaps[id] ||
+    !this.m_shape.testOverlap(this._transform, this._childIndex, fixture.m_shape, fixture.m_body.getTransform(), proxy.childIndex)) {
+    return true;
+  }
+  this._overlaps[id] = true;
+  return this._overlapCallback(fixture); // Dynamic tree must not be modified here.
+};
+
 
 /***/ }),
 /* 31 */
@@ -8571,6 +8649,7 @@ World.prototype.clearForces = function() {
  * @function World~rayCastCallback
  *
  * @param fixture
+ * @param proxy
  */
 
 /**
@@ -8584,12 +8663,18 @@ World.prototype.clearForces = function() {
  */
 World.prototype.queryAABB = function(aabb, queryCallback) {
   _ASSERT && common.assert(typeof queryCallback === 'function');
-  var broadPhase = this.m_broadPhase;
-  this.m_broadPhase.query(aabb, function(proxyId) { //TODO GC
-    var proxy = broadPhase.getUserData(proxyId); // FixtureProxy
-    return queryCallback(proxy.fixture);
-  });
-}
+  World._reportFixtureCallback = queryCallback;
+  this.m_broadPhase.query(aabb, this._queryAABBCallback);
+  World._reportFixtureCallback = null;
+};
+
+/**
+ * Called for each fixture found in the query AABB.
+ * Used internally.
+ */
+World.prototype._queryAABBCallback = function(proxyId, proxy) {
+  return World._reportFixtureCallback(proxy.fixture, proxy);
+};
 
 /**
  * @function World~rayCastCallback
@@ -8624,7 +8709,7 @@ World.prototype.queryAABB = function(aabb, queryCallback) {
 World.prototype.rayCast = function(point1, point2, reportFixtureCallback) {
   World._reportFixtureCallback = reportFixtureCallback;
   this.m_broadPhase.rayCast(null, this._raycastCallback, point1, point2, 1.0);
-  World._reportFixtureCallback = undefined;
+  World._reportFixtureCallback = null;
 };
 
 /**
@@ -10145,7 +10230,7 @@ DynamicTree.prototype.query = function(aabb, queryCallback) {
 
     if (AABB.testOverlap(node.aabb, aabb)) {
       if (node.isLeaf()) {
-        var proceed = queryCallback(node.id);
+        var proceed = queryCallback(node.id, node.userData);
         if (proceed == false) {
           return;
         }
