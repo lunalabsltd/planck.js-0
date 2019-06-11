@@ -8152,6 +8152,15 @@ Fixture.prototype.getAABB = function(childIndex) {
 }
 
 /**
+ * Gets aabb proxy id.
+ *
+ * @param {Number} childIndex Child index to get proxy id for.
+ */
+Fixture.prototype.getProxyId = function(childIndex) {
+  return this.m_proxies[childIndex].proxyId;
+};
+
+/**
  * These support body activation/deactivation.
  */
 Fixture.prototype.createProxies = function(broadPhase, xf) {
@@ -8707,9 +8716,16 @@ World.prototype._queryAABBCallback = function(proxyId, proxy) {
  * @param point2 The ray ending point
  */
 World.prototype.rayCast = function(point1, point2, reportFixtureCallback) {
-  World._reportFixtureCallback = reportFixtureCallback;
+  if (this._raycastCallback == World.prototype._raycastCallback) {
+    var self = this;
+    this._raycastCallback = function(input, proxyId, proxy) {
+      World.prototype._raycastCallback.call(self, input, proxyId, proxy);
+    };
+  }
+  this._hits = {};
+  this._reportFixtureCallback = reportFixtureCallback;
   this.m_broadPhase.rayCast(null, this._raycastCallback, point1, point2, 1.0);
-  World._reportFixtureCallback = null;
+  this._hits = this._reportFixtureCallback = reportFixtureCallback = null;
 };
 
 /**
@@ -8718,13 +8734,18 @@ World.prototype.rayCast = function(point1, point2, reportFixtureCallback) {
  */
 World.prototype._raycastCallback = function(input, proxyId, proxy) {
   var fixture = proxy.fixture;
+  var id = fixture.getProxyId(0);
+  if (this._hits[id]) {
+    return input.maxFraction;
+  }
   var index = proxy.childIndex;
   var output = {}; // TODO GC
   var hit = fixture.rayCast(output, input, index);
   if (hit) {
+    this._hits[id] = true;
     var fraction = output.fraction;
     var point = input.p1.mul(1.0 - fraction).add(input.p2.mul(fraction));
-    return World._reportFixtureCallback(fixture, point, output.normal, fraction);
+    return this._reportFixtureCallback(fixture, point, output.normal, fraction);
   }
   return input.maxFraction;
 };
