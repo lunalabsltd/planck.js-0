@@ -9366,10 +9366,7 @@ Fixture.prototype.queryOverlaps = function(callback) {
     return;
   }
   if (this._reportOverlap == Fixture.prototype._reportOverlap) {
-    var self = this;
-    this._reportOverlap = function(fixture, proxy) {
-      Fixture.prototype._reportOverlap.call(self, fixture, proxy);
-    };
+    this._reportOverlap = this._reportOverlap.bind(this);
   }
   this._overlaps = {};
   this._overlapCallback = callback;
@@ -9727,10 +9724,7 @@ World.prototype._queryAABBCallback = function(proxyId, proxy) {
  */
 World.prototype.rayCast = function(point1, point2, reportFixtureCallback) {
   if (this._raycastCallback == World.prototype._raycastCallback) {
-    var self = this;
-    this._raycastCallback = function(input, proxyId, proxy) {
-      World.prototype._raycastCallback.call(self, input, proxyId, proxy);
-    };
+    this._raycastCallback = this._raycastCallback.bind(this);
   }
   this._hits = {};
   this._reportFixtureCallback = reportFixtureCallback;
