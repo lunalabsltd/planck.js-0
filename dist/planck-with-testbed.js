@@ -18394,6 +18394,17 @@ RopeJoint.prototype.getMaxLength = function() {
   return this.m_maxLength;
 }
 
+/**
+ * Set/Get the maximum length of the rope.
+ */
+RopeJoint.prototype.setLength = function(length) {
+  this.m_maxLength = length;
+};
+
+RopeJoint.prototype.getLength = function() {
+  return this.m_maxLength;
+};
+
 RopeJoint.prototype.getLimitState = function() {
   // TODO LimitState
   return this.m_state;
