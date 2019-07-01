@@ -2465,6 +2465,15 @@ Joint.prototype.getBodyA = function() {
 }
 
 /**
+ * Set the first body attached to this joint.
+ * 
+ * @returns Body
+ */
+Joint.prototype.setBodyA = function(body) {
+  this.m_bodyA = body;
+};
+
+/**
  * Get the second body attached to this joint.
  * 
  * @returns Body
@@ -2472,6 +2481,15 @@ Joint.prototype.getBodyA = function() {
 Joint.prototype.getBodyB = function() {
   return this.m_bodyB;
 }
+
+/**
+ * Set the second body attached to this joint.
+ * 
+ * @returns Body
+ */
+Joint.prototype.setBodyB = function(body) {
+  this.m_bodyB = body;
+};
 
 /**
  * Get the next joint the world joint list.
