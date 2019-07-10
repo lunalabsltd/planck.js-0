@@ -2471,6 +2471,7 @@ Joint.prototype.getBodyA = function() {
  */
 Joint.prototype.setBodyA = function(body) {
   this.m_bodyA = body;
+  body.setAwake(true);
 };
 
 /**
@@ -2489,6 +2490,7 @@ Joint.prototype.getBodyB = function() {
  */
 Joint.prototype.setBodyB = function(body) {
   this.m_bodyB = body;
+  body.setAwake(true);
 };
 
 /**
