@@ -736,10 +736,12 @@ Vec2.abs = function(v) {
   return Vec2.neo(Math.abs(v.x), Math.abs(v.y));
 }
 
-Vec2.mid = function(v, w) {
+Vec2.mid = function(v, w, res) {
   _ASSERT && Vec2.assert(v);
   _ASSERT && Vec2.assert(w);
-  return Vec2.neo((v.x + w.x) * 0.5, (v.y + w.y) * 0.5);
+  var x = (v.x + w.x) * 0.5;
+  var y = (v.y + w.y) * 0.5;
+  return res ? res.set(x, y) : Vec2.neo(x, y);
 }
 
 Vec2.upper = function(v, w) {
@@ -810,6 +812,244 @@ exports.assert = function(statement, err, log) {
 
 /***/ }),
 /* 3 */
+/***/ (function(module, exports, __webpack_require__) {
+
+/*
+ * Copyright (c) 2016-2018 Ali Shakiba http://shakiba.me/planck.js
+ * Copyright (c) 2006-2011 Erin Catto  http://www.box2d.org
+ *
+ * This software is provided 'as-is', without any express or implied
+ * warranty.  In no event will the authors be held liable for any damages
+ * arising from the use of this software.
+ * Permission is granted to anyone to use this software for any purpose,
+ * including commercial applications, and to alter it and redistribute it
+ * freely, subject to the following restrictions:
+ * 1. The origin of this software must not be misrepresented; you must not
+ * claim that you wrote the original software. If you use this software
+ * in a product, an acknowledgment in the product documentation would be
+ * appreciated but is not required.
+ * 2. Altered source versions must be plainly marked as such, and must not be
+ * misrepresented as being the original software.
+ * 3. This notice may not be removed or altered from any source distribution.
+ */
+
+var _DEBUG =  false ? undefined : false;
+var _ASSERT =  false ? undefined : false;
+
+module.exports = Transform;
+
+var common = __webpack_require__(2);
+var Vec2 = __webpack_require__(1);
+var Rot = __webpack_require__(4);
+
+// TODO merge with Rot
+
+/**
+ * A transform contains translation and rotation. It is used to represent the
+ * position and orientation of rigid frames. Initialize using a position vector
+ * and a rotation.
+ *
+ * @prop {Vec2} position
+ * @prop {Rot} rotation
+ */
+function Transform(position, rotation) {
+  if (!(this instanceof Transform)) {
+    return new Transform(position, rotation);
+  }
+  this.p = Vec2.zero();
+  this.q = Rot.identity();
+  if (typeof position !== 'undefined') {
+    this.p.set(position);
+  }
+  if (typeof rotation !== 'undefined') {
+    this.q.set(rotation);
+  }
+};
+
+Transform.clone = function(xf) {
+  var obj = Object.create(Transform.prototype);
+  obj.p = Vec2.clone(xf.p);
+  obj.q = Rot.clone(xf.q);
+  return obj;
+};
+
+Transform.neo = function(position, rotation) {
+  var obj = Object.create(Transform.prototype);
+  obj.p = Vec2.clone(position);
+  obj.q = Rot.clone(rotation);
+  return obj;
+};
+
+Transform.identity = function() {
+  var obj = Object.create(Transform.prototype);
+  obj.p = Vec2.zero();
+  obj.q = Rot.identity();
+  return obj;
+};
+
+/**
+ * Set this to the identity transform.
+ */
+Transform.prototype.setIdentity = function() {
+  this.p.setZero();
+  this.q.setIdentity();
+}
+
+/**
+ * Set this based on the position and angle.
+ */
+Transform.prototype.set = function(a, b) {
+  if (typeof b === 'undefined') {
+    this.p.set(a.p);
+    this.q.set(a.q);
+  } else {
+    this.p.set(a);
+    this.q.set(b);
+  }
+}
+
+Transform.isValid = function(o) {
+  return o && Vec2.isValid(o.p) && Rot.isValid(o.q);
+}
+
+Transform.assert = function(o) {
+  if (!_ASSERT) return;
+  if (!Transform.isValid(o)) {
+    _DEBUG && common.debug(o);
+    throw new Error('Invalid Transform!');
+  }
+}
+
+/**
+ * @param {Transform} a
+ * @param {Vec2} b
+ * @returns {Vec2}
+ *
+ * @param {Transform} a
+ * @param {Transform} b
+ * @returns {Transform}
+ */
+Transform.mul = function(a, b) {
+  _ASSERT && Transform.assert(a);
+  if (Array.isArray(b)) {
+    var arr = [];
+    for (var i = 0; i < b.length; i++) {
+      arr[i] = Transform.mul(a, b[i]);
+    }
+    return arr;
+
+  } else if ('x' in b && 'y' in b) {
+    _ASSERT && Vec2.assert(b);
+    var x = (a.q.c * b.x - a.q.s * b.y) + a.p.x;
+    var y = (a.q.s * b.x + a.q.c * b.y) + a.p.y;
+    return Vec2.neo(x, y);
+
+  } else if ('p' in b && 'q' in b) {
+    _ASSERT && Transform.assert(b);
+    // v2 = A.q.Rot(B.q.Rot(v1) + B.p) + A.p
+    // = (A.q * B.q).Rot(v1) + A.q.Rot(B.p) + A.p
+    var xf = Transform.identity();
+    xf.q = Rot.mulRot(a.q, b.q);
+    xf.p = Vec2.add(Rot.mulVec2(a.q, b.p), a.p);
+    return xf;
+  }
+}
+
+/**
+ * @deprecated Use mulFn instead.
+ */
+Transform.mulAll = function(a, b) {
+  _ASSERT && Transform.assert(a);
+  var arr = [];
+  for (var i = 0; i < b.length; i++) {
+    arr[i] = Transform.mul(a, b[i]);
+  }
+  return arr;
+}
+
+/**
+ * @experimental
+ */
+Transform.mulFn = function(a) {
+  _ASSERT && Transform.assert(a);
+  return function(b) {
+    return Transform.mul(a, b);
+  };
+}
+
+Transform.mulVec2 = function(a, b, res) {
+  _ASSERT && Transform.assert(a);
+  _ASSERT && Vec2.assert(b);
+  var x = (a.q.c * b.x - a.q.s * b.y) + a.p.x;
+  var y = (a.q.s * b.x + a.q.c * b.y) + a.p.y;
+  return res ? res.set(x, y) : Vec2.neo(x, y);
+}
+
+Transform.mulXf = function(a, b) {
+  _ASSERT && Transform.assert(a);
+  _ASSERT && Transform.assert(b);
+  // v2 = A.q.Rot(B.q.Rot(v1) + B.p) + A.p
+  // = (A.q * B.q).Rot(v1) + A.q.Rot(B.p) + A.p
+  var xf = Transform.identity();
+  xf.q = Rot.mulRot(a.q, b.q);
+  xf.p = Vec2.add(Rot.mulVec2(a.q, b.p), a.p);
+  return xf;
+}
+
+/**
+ * @param {Transform} a
+ * @param {Vec2} b
+ * @returns {Vec2}
+ *
+ * @param {Transform} a
+ * @param {Transform} b
+ * @returns {Transform}
+ */
+Transform.mulT = function(a, b) {
+  _ASSERT && Transform.assert(a);
+  if ('x' in b && 'y' in b) {
+    _ASSERT && Vec2.assert(b)
+    var px = b.x - a.p.x;
+    var py = b.y - a.p.y;
+    var x = (a.q.c * px + a.q.s * py);
+    var y = (-a.q.s * px + a.q.c * py);
+    return Vec2.neo(x, y);
+
+  } else if ('p' in b && 'q' in b) {
+    _ASSERT && Transform.assert(b);
+    // v2 = A.q' * (B.q * v1 + B.p - A.p)
+    // = A.q' * B.q * v1 + A.q' * (B.p - A.p)
+    var xf = Transform.identity();
+    xf.q.set(Rot.mulTRot(a.q, b.q));
+    xf.p.set(Rot.mulTVec2(a.q, Vec2.sub(b.p, a.p)));
+    return xf;
+  }
+}
+
+Transform.mulTVec2 = function(a, b, res) {
+  _ASSERT && Transform.assert(a);
+  _ASSERT && Vec2.assert(b)
+  var px = b.x - a.p.x;
+  var py = b.y - a.p.y;
+  var x = (a.q.c * px + a.q.s * py);
+  var y = (-a.q.s * px + a.q.c * py);
+  return res ? res.set(x, y) : Vec2.neo(x, y);
+}
+
+Transform.mulTXf = function(a, b) {
+  _ASSERT && Transform.assert(a);
+  _ASSERT && Transform.assert(b);
+  // v2 = A.q' * (B.q * v1 + B.p - A.p)
+  // = A.q' * B.q * v1 + A.q' * (B.p - A.p)
+  var xf = Transform.identity();
+  xf.q.set(Rot.mulTRot(a.q, b.q));
+  xf.p.set(Rot.mulTVec2(a.q, Vec2.sub(b.p, a.p)));
+  return xf;
+}
+
+
+/***/ }),
+/* 4 */
 /***/ (function(module, exports, __webpack_require__) {
 
 /*
@@ -1039,244 +1279,6 @@ Rot.mulTRot = function(rot, m) {
 Rot.mulTVec2 = function(rot, m) {
   _ASSERT && Vec2.assert(m);
   return Vec2.neo(rot.c * m.x + rot.s * m.y, -rot.s * m.x + rot.c * m.y);
-}
-
-
-/***/ }),
-/* 4 */
-/***/ (function(module, exports, __webpack_require__) {
-
-/*
- * Copyright (c) 2016-2018 Ali Shakiba http://shakiba.me/planck.js
- * Copyright (c) 2006-2011 Erin Catto  http://www.box2d.org
- *
- * This software is provided 'as-is', without any express or implied
- * warranty.  In no event will the authors be held liable for any damages
- * arising from the use of this software.
- * Permission is granted to anyone to use this software for any purpose,
- * including commercial applications, and to alter it and redistribute it
- * freely, subject to the following restrictions:
- * 1. The origin of this software must not be misrepresented; you must not
- * claim that you wrote the original software. If you use this software
- * in a product, an acknowledgment in the product documentation would be
- * appreciated but is not required.
- * 2. Altered source versions must be plainly marked as such, and must not be
- * misrepresented as being the original software.
- * 3. This notice may not be removed or altered from any source distribution.
- */
-
-var _DEBUG =  false ? undefined : false;
-var _ASSERT =  false ? undefined : false;
-
-module.exports = Transform;
-
-var common = __webpack_require__(2);
-var Vec2 = __webpack_require__(1);
-var Rot = __webpack_require__(3);
-
-// TODO merge with Rot
-
-/**
- * A transform contains translation and rotation. It is used to represent the
- * position and orientation of rigid frames. Initialize using a position vector
- * and a rotation.
- *
- * @prop {Vec2} position
- * @prop {Rot} rotation
- */
-function Transform(position, rotation) {
-  if (!(this instanceof Transform)) {
-    return new Transform(position, rotation);
-  }
-  this.p = Vec2.zero();
-  this.q = Rot.identity();
-  if (typeof position !== 'undefined') {
-    this.p.set(position);
-  }
-  if (typeof rotation !== 'undefined') {
-    this.q.set(rotation);
-  }
-};
-
-Transform.clone = function(xf) {
-  var obj = Object.create(Transform.prototype);
-  obj.p = Vec2.clone(xf.p);
-  obj.q = Rot.clone(xf.q);
-  return obj;
-};
-
-Transform.neo = function(position, rotation) {
-  var obj = Object.create(Transform.prototype);
-  obj.p = Vec2.clone(position);
-  obj.q = Rot.clone(rotation);
-  return obj;
-};
-
-Transform.identity = function() {
-  var obj = Object.create(Transform.prototype);
-  obj.p = Vec2.zero();
-  obj.q = Rot.identity();
-  return obj;
-};
-
-/**
- * Set this to the identity transform.
- */
-Transform.prototype.setIdentity = function() {
-  this.p.setZero();
-  this.q.setIdentity();
-}
-
-/**
- * Set this based on the position and angle.
- */
-Transform.prototype.set = function(a, b) {
-  if (typeof b === 'undefined') {
-    this.p.set(a.p);
-    this.q.set(a.q);
-  } else {
-    this.p.set(a);
-    this.q.set(b);
-  }
-}
-
-Transform.isValid = function(o) {
-  return o && Vec2.isValid(o.p) && Rot.isValid(o.q);
-}
-
-Transform.assert = function(o) {
-  if (!_ASSERT) return;
-  if (!Transform.isValid(o)) {
-    _DEBUG && common.debug(o);
-    throw new Error('Invalid Transform!');
-  }
-}
-
-/**
- * @param {Transform} a
- * @param {Vec2} b
- * @returns {Vec2}
- *
- * @param {Transform} a
- * @param {Transform} b
- * @returns {Transform}
- */
-Transform.mul = function(a, b) {
-  _ASSERT && Transform.assert(a);
-  if (Array.isArray(b)) {
-    var arr = [];
-    for (var i = 0; i < b.length; i++) {
-      arr[i] = Transform.mul(a, b[i]);
-    }
-    return arr;
-
-  } else if ('x' in b && 'y' in b) {
-    _ASSERT && Vec2.assert(b);
-    var x = (a.q.c * b.x - a.q.s * b.y) + a.p.x;
-    var y = (a.q.s * b.x + a.q.c * b.y) + a.p.y;
-    return Vec2.neo(x, y);
-
-  } else if ('p' in b && 'q' in b) {
-    _ASSERT && Transform.assert(b);
-    // v2 = A.q.Rot(B.q.Rot(v1) + B.p) + A.p
-    // = (A.q * B.q).Rot(v1) + A.q.Rot(B.p) + A.p
-    var xf = Transform.identity();
-    xf.q = Rot.mulRot(a.q, b.q);
-    xf.p = Vec2.add(Rot.mulVec2(a.q, b.p), a.p);
-    return xf;
-  }
-}
-
-/**
- * @deprecated Use mulFn instead.
- */
-Transform.mulAll = function(a, b) {
-  _ASSERT && Transform.assert(a);
-  var arr = [];
-  for (var i = 0; i < b.length; i++) {
-    arr[i] = Transform.mul(a, b[i]);
-  }
-  return arr;
-}
-
-/**
- * @experimental
- */
-Transform.mulFn = function(a) {
-  _ASSERT && Transform.assert(a);
-  return function(b) {
-    return Transform.mul(a, b);
-  };
-}
-
-Transform.mulVec2 = function(a, b) {
-  _ASSERT && Transform.assert(a);
-  _ASSERT && Vec2.assert(b);
-  var x = (a.q.c * b.x - a.q.s * b.y) + a.p.x;
-  var y = (a.q.s * b.x + a.q.c * b.y) + a.p.y;
-  return Vec2.neo(x, y);
-}
-
-Transform.mulXf = function(a, b) {
-  _ASSERT && Transform.assert(a);
-  _ASSERT && Transform.assert(b);
-  // v2 = A.q.Rot(B.q.Rot(v1) + B.p) + A.p
-  // = (A.q * B.q).Rot(v1) + A.q.Rot(B.p) + A.p
-  var xf = Transform.identity();
-  xf.q = Rot.mulRot(a.q, b.q);
-  xf.p = Vec2.add(Rot.mulVec2(a.q, b.p), a.p);
-  return xf;
-}
-
-/**
- * @param {Transform} a
- * @param {Vec2} b
- * @returns {Vec2}
- *
- * @param {Transform} a
- * @param {Transform} b
- * @returns {Transform}
- */
-Transform.mulT = function(a, b) {
-  _ASSERT && Transform.assert(a);
-  if ('x' in b && 'y' in b) {
-    _ASSERT && Vec2.assert(b)
-    var px = b.x - a.p.x;
-    var py = b.y - a.p.y;
-    var x = (a.q.c * px + a.q.s * py);
-    var y = (-a.q.s * px + a.q.c * py);
-    return Vec2.neo(x, y);
-
-  } else if ('p' in b && 'q' in b) {
-    _ASSERT && Transform.assert(b);
-    // v2 = A.q' * (B.q * v1 + B.p - A.p)
-    // = A.q' * B.q * v1 + A.q' * (B.p - A.p)
-    var xf = Transform.identity();
-    xf.q.set(Rot.mulTRot(a.q, b.q));
-    xf.p.set(Rot.mulTVec2(a.q, Vec2.sub(b.p, a.p)));
-    return xf;
-  }
-}
-
-Transform.mulTVec2 = function(a, b) {
-  _ASSERT && Transform.assert(a);
-  _ASSERT && Vec2.assert(b)
-  var px = b.x - a.p.x;
-  var py = b.y - a.p.y;
-  var x = (a.q.c * px + a.q.s * py);
-  var y = (-a.q.s * px + a.q.c * py);
-  return Vec2.neo(x, y);
-}
-
-Transform.mulTXf = function(a, b) {
-  _ASSERT && Transform.assert(a);
-  _ASSERT && Transform.assert(b);
-  // v2 = A.q' * (B.q * v1 + B.p - A.p)
-  // = A.q' * B.q * v1 + A.q' * (B.p - A.p)
-  var xf = Transform.identity();
-  xf.q.set(Rot.mulTRot(a.q, b.q));
-  xf.p.set(Rot.mulTVec2(a.q, Vec2.sub(b.p, a.p)));
-  return xf;
 }
 
 
@@ -1908,8 +1910,8 @@ module.exports = Sweep;
 var common = __webpack_require__(2);
 var Math = __webpack_require__(0);
 var Vec2 = __webpack_require__(1);
-var Rot = __webpack_require__(3);
-var Transform = __webpack_require__(4);
+var Rot = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 
 /**
  * This describes the motion of a body/shape for TOI computation. Shapes are
@@ -2311,7 +2313,7 @@ var _ASSERT =  false ? undefined : false;
 module.exports = Position;
 
 var Vec2 = __webpack_require__(1);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 
 /**
  * @prop {Vec2} c location
@@ -2605,138 +2607,6 @@ Joint.prototype.solvePositionConstraints = function(step) {
 var _DEBUG =  false ? undefined : false;
 var _ASSERT =  false ? undefined : false;
 
-module.exports = Shape;
-
-var Math = __webpack_require__(0);
-
-/**
- * A shape is used for collision detection. You can create a shape however you
- * like. Shapes used for simulation in World are created automatically when a
- * Fixture is created. Shapes may encapsulate one or more child shapes.
- */
-function Shape() {
-  this.m_type;
-  this.m_radius;
-}
-
-Shape.isValid = function(shape) {
-  return !!shape;
-};
-
-Shape.prototype.getRadius = function() {
-  return this.m_radius;
-};
-
-/**
- * Get the type of this shape. You can use this to down cast to the concrete
- * shape.
- * 
- * @return the shape type.
- */
-Shape.prototype.getType = function() {
-  return this.m_type;
-};
-
-/**
- * @deprecated Shapes should be treated as immutable.
- *
- * clone the concrete shape.
- */
-Shape.prototype._clone = function() {
-};
-
-/**
- * // Get the number of child primitives.
- */
-Shape.prototype.getChildCount = function() {
-};
-
-/**
- * Test a point for containment in this shape. This only works for convex
- * shapes.
- * 
- * @param {Transform} xf The shape world transform.
- * @param p A point in world coordinates.
- */
-Shape.prototype.testPoint = function(xf, p) {
-};
-
-/**
- * Cast a ray against a child shape.
- * 
- * @param {RayCastOutput} output The ray-cast results.
- * @param {RayCastInput} input The ray-cast input parameters.
- * @param {Transform} transform The transform to be applied to the shape.
- * @param childIndex The child shape index
- */
-Shape.prototype.rayCast = function(output, input, transform, childIndex) {
-};
-
-/**
- * Given a transform, compute the associated axis aligned bounding box for a
- * child shape.
- * 
- * @param {AABB} aabb Returns the axis aligned box.
- * @param {Transform} xf The world transform of the shape.
- * @param childIndex The child shape
- */
-Shape.prototype.computeAABB = function(aabb, xf, childIndex) {
-};
-
-/**
- * Compute the mass properties of this shape using its dimensions and density.
- * The inertia tensor is computed about the local origin.
- * 
- * @param {MassData} massData Returns the mass data for this shape.
- * @param density The density in kilograms per meter squared.
- */
-Shape.prototype.computeMass = function(massData, density) {
-};
-
-/**
- * @param {DistanceProxy} proxy
- */
-Shape.prototype.computeDistanceProxy = function(proxy) {
-};
-
-/**
- * Tests if current shape overlaps with a provided shape.
- *
- * @param {planck.Shape} shape A shape to test for overlapping with a current one.
- * @param {Transform} transform The transform applied to the shape.
- * @param {Number} childIndex The child shape index
- * @return {Boolean} True if shapes overlap, false otherwise.
- */
-Shape.prototype.testOverlap = function(transform, childIndex, shape, shapeTransform, shapeChildIndex) {
-};
-
-
-/***/ }),
-/* 16 */
-/***/ (function(module, exports, __webpack_require__) {
-
-/*
- * Copyright (c) 2016-2018 Ali Shakiba http://shakiba.me/planck.js
- * Copyright (c) 2006-2011 Erin Catto  http://www.box2d.org
- *
- * This software is provided 'as-is', without any express or implied
- * warranty.  In no event will the authors be held liable for any damages
- * arising from the use of this software.
- * Permission is granted to anyone to use this software for any purpose,
- * including commercial applications, and to alter it and redistribute it
- * freely, subject to the following restrictions:
- * 1. The origin of this software must not be misrepresented; you must not
- * claim that you wrote the original software. If you use this software
- * in a product, an acknowledgment in the product documentation would be
- * appreciated but is not required.
- * 2. Altered source versions must be plainly marked as such, and must not be
- * misrepresented as being the original software.
- * 3. This notice may not be removed or altered from any source distribution.
- */
-
-var _DEBUG =  false ? undefined : false;
-var _ASSERT =  false ? undefined : false;
-
 var Settings = __webpack_require__(5);
 var Math = __webpack_require__(0);
 var Vec2 = __webpack_require__(1);
@@ -2969,6 +2839,138 @@ AABB.prototype.toString = function() {
 }
 
 /***/ }),
+/* 16 */
+/***/ (function(module, exports, __webpack_require__) {
+
+/*
+ * Copyright (c) 2016-2018 Ali Shakiba http://shakiba.me/planck.js
+ * Copyright (c) 2006-2011 Erin Catto  http://www.box2d.org
+ *
+ * This software is provided 'as-is', without any express or implied
+ * warranty.  In no event will the authors be held liable for any damages
+ * arising from the use of this software.
+ * Permission is granted to anyone to use this software for any purpose,
+ * including commercial applications, and to alter it and redistribute it
+ * freely, subject to the following restrictions:
+ * 1. The origin of this software must not be misrepresented; you must not
+ * claim that you wrote the original software. If you use this software
+ * in a product, an acknowledgment in the product documentation would be
+ * appreciated but is not required.
+ * 2. Altered source versions must be plainly marked as such, and must not be
+ * misrepresented as being the original software.
+ * 3. This notice may not be removed or altered from any source distribution.
+ */
+
+var _DEBUG =  false ? undefined : false;
+var _ASSERT =  false ? undefined : false;
+
+module.exports = Shape;
+
+var Math = __webpack_require__(0);
+
+/**
+ * A shape is used for collision detection. You can create a shape however you
+ * like. Shapes used for simulation in World are created automatically when a
+ * Fixture is created. Shapes may encapsulate one or more child shapes.
+ */
+function Shape() {
+  this.m_type;
+  this.m_radius;
+}
+
+Shape.isValid = function(shape) {
+  return !!shape;
+};
+
+Shape.prototype.getRadius = function() {
+  return this.m_radius;
+};
+
+/**
+ * Get the type of this shape. You can use this to down cast to the concrete
+ * shape.
+ * 
+ * @return the shape type.
+ */
+Shape.prototype.getType = function() {
+  return this.m_type;
+};
+
+/**
+ * @deprecated Shapes should be treated as immutable.
+ *
+ * clone the concrete shape.
+ */
+Shape.prototype._clone = function() {
+};
+
+/**
+ * // Get the number of child primitives.
+ */
+Shape.prototype.getChildCount = function() {
+};
+
+/**
+ * Test a point for containment in this shape. This only works for convex
+ * shapes.
+ * 
+ * @param {Transform} xf The shape world transform.
+ * @param p A point in world coordinates.
+ */
+Shape.prototype.testPoint = function(xf, p) {
+};
+
+/**
+ * Cast a ray against a child shape.
+ * 
+ * @param {RayCastOutput} output The ray-cast results.
+ * @param {RayCastInput} input The ray-cast input parameters.
+ * @param {Transform} transform The transform to be applied to the shape.
+ * @param childIndex The child shape index
+ */
+Shape.prototype.rayCast = function(output, input, transform, childIndex) {
+};
+
+/**
+ * Given a transform, compute the associated axis aligned bounding box for a
+ * child shape.
+ * 
+ * @param {AABB} aabb Returns the axis aligned box.
+ * @param {Transform} xf The world transform of the shape.
+ * @param childIndex The child shape
+ */
+Shape.prototype.computeAABB = function(aabb, xf, childIndex) {
+};
+
+/**
+ * Compute the mass properties of this shape using its dimensions and density.
+ * The inertia tensor is computed about the local origin.
+ * 
+ * @param {MassData} massData Returns the mass data for this shape.
+ * @param density The density in kilograms per meter squared.
+ */
+Shape.prototype.computeMass = function(massData, density) {
+};
+
+/**
+ * @param {DistanceProxy} proxy
+ */
+Shape.prototype.computeDistanceProxy = function(proxy) {
+};
+
+/**
+ * Tests if current shape overlaps with a provided shape.
+ *
+ * @param {planck.Shape} shape A shape to test for overlapping with a current one.
+ * @param {Transform} transform The transform applied to the shape.
+ * @param {Number} childIndex The child shape index
+ * @return {Boolean} True if shapes overlap, false otherwise.
+ */
+Shape.prototype.testOverlap = function(transform, childIndex, shape, shapeTransform, shapeChildIndex) {
+};
+
+
+/***/ }),
 /* 17 */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -3000,13 +3002,13 @@ var common = __webpack_require__(2);
 
 var Math = __webpack_require__(0);
 var Vec2 = __webpack_require__(1);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Mat22 = __webpack_require__(9);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 
 var Settings = __webpack_require__(5);
 var Manifold = __webpack_require__(18);
-var Distance = __webpack_require__(21);
+var Distance = __webpack_require__(23);
 
 module.exports = Contact;
 
@@ -4227,9 +4229,9 @@ var _ASSERT =  false ? undefined : false;
 var common = __webpack_require__(2);
 
 var Vec2 = __webpack_require__(1);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Math = __webpack_require__(0);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 
 module.exports = Manifold;
 module.exports.clipSegmentToLine = clipSegmentToLine;
@@ -4808,12 +4810,12 @@ var common = __webpack_require__(2);
 var create = __webpack_require__(6);
 var options = __webpack_require__(7);
 var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
-var Rot = __webpack_require__(3);
+var Transform = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Vec2 = __webpack_require__(1);
-var AABB = __webpack_require__(16);
+var AABB = __webpack_require__(15);
 var Settings = __webpack_require__(5);
-var Shape = __webpack_require__(15);
+var Shape = __webpack_require__(16);
 
 var p = new Vec2(), p1 = new Vec2(), p2 = new Vec2(), v1 = new Vec2(), v2 = new Vec2(), d = new Vec2(), rot = new Rot();
 
@@ -5161,7 +5163,7 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
     var numerator = Vec2.dot( normal, p.set(v1).sub(p1) );
     var denominator = Vec2.dot(normal, d);
 
-    if (-Math.EPSION <= denominator && denominator <= Math.EPSION) { // Ray is parallel to poligon's side.
+    if (-Math.EPSILON <= denominator && denominator <= Math.EPSILON) { // Ray is parallel to poligon's side.
       continue;
     }
 
@@ -5169,7 +5171,8 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
     p.set(d).mul(a).add(p1);
 
     v2.set( this.m_vertices[ i + 1 < this.m_count ? i + 1 : 0 ] ); // Set second vertex.
-    var intersects = Vec2.dot(v1.sub(p), v2.sub(p)) < 0.0; // If ray line intersects polygon side.
+    var dot = Vec2.dot(v1.sub(p), v2.sub(p));
+    var intersects = dot < Math.EPSILON; // If ray line intersects polygon side.
     if (!intersects) {
       continue;
     }
@@ -5179,7 +5182,15 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
 
     intersects = lower <= a; // If half-line intersects polygon side.
     if (intersects) {
-      ++count;
+      if (dot > -Math.EPSILON) { // If it intersects end of the side.
+        if (denominator < 0.0) { // denominator < 0 <=> ray and normal are opposite.
+          count -= 0.5;
+        } else { // denominator > 0 <=> ray and normal are codirectional.
+          count += 0.5;
+        }
+      } else {
+        count += 1;
+      }
     }
 
     if (denominator < 0.0 && intersects) { // denominator < 0 <=> ray and normal are opposite.
@@ -5194,16 +5205,18 @@ PolygonShape.prototype.rayCast = function(output, input, xf, childIndex) {
       continue;
     }
 
-    if (lower <= upper) {
+    if (lower <= upper && a <= lowest) {
       index = i; // Save closest intersection.
-      if (a < lowest) {
-        lowest = a;
-      }
+      lowest = a;
     }
 
   }
 
-  if (count & 1) { // Half-line intersections number is odd => we start inside.
+  if (count < 0.0) {
+    count = -count;
+  }
+
+  if (Math.abs(count % 2 - 1) < Math.EPSILON) { // Half-line intersections number is odd => we start inside.
     output.fraction = 0.0;
     // we are safe to return a reference as it's coppied in c# wrapper.
     output.normal = isPoint ? Vec2.ZERO : d.neg().normal().rot(xf.q);
@@ -5375,6 +5388,715 @@ PolygonShape.prototype.computeDistanceProxy = function(proxy) {
 var _DEBUG =  false ? undefined : false;
 var _ASSERT =  false ? undefined : false;
 
+module.exports = CircleShape;
+
+var common = __webpack_require__(2);
+var create = __webpack_require__(6);
+var options = __webpack_require__(7);
+var Math = __webpack_require__(0);
+var Transform = __webpack_require__(3);
+var Rot = __webpack_require__(4);
+var Vec2 = __webpack_require__(1);
+var AABB = __webpack_require__(15);
+var Settings = __webpack_require__(5);
+var Shape = __webpack_require__(16);
+var Contact = __webpack_require__(17);
+var PolygonShape = __webpack_require__(20);
+var ChainShape = __webpack_require__(24);
+var EdgeShape = __webpack_require__(22);
+
+CircleShape._super = Shape;
+CircleShape.prototype = create(CircleShape._super.prototype);
+
+CircleShape.TYPE = 'circle';
+
+function CircleShape(a, b) {
+  if (!(this instanceof CircleShape)) {
+    return new CircleShape(a, b);
+  }
+
+  CircleShape._super.call(this);
+
+  this.m_type = CircleShape.TYPE;
+  this.m_p = Vec2.zero();
+  this.m_radius = 1;
+
+  if (typeof a === 'object' && Vec2.isValid(a)) {
+    this.m_p.set(a);
+
+    if (typeof b === 'number') {
+      this.m_radius = b;
+    }
+
+  } else if (typeof a === 'number') {
+    this.m_radius = a;
+  }
+}
+
+CircleShape.prototype.getRadius = function() {
+  return this.m_radius;
+};
+
+CircleShape.prototype.setRadius = function(radius) {
+  this.m_radius = radius;
+};
+
+CircleShape.prototype.getCenter = function() {
+  return this.m_p;
+}
+
+CircleShape.prototype.getVertex = function(index) {
+  _ASSERT && common.assert(index == 0);
+  return this.m_p;
+}
+
+CircleShape.prototype.getVertexCount = function(index) {
+  return 1;
+}
+
+/**
+ * @deprecated
+ */
+CircleShape.prototype._clone = function() {
+  var clone = new CircleShape();
+  clone.m_type = this.m_type;
+  clone.m_radius = this.m_radius;
+  clone.m_p = this.m_p.clone();
+  return clone;
+}
+
+CircleShape.prototype.getChildCount = function() {
+  return 1;
+}
+
+CircleShape.prototype.testPoint = function(xf, p) {
+  var center = Vec2.add(xf.p, Rot.mulVec2(xf.q, this.m_p));
+  var d = Vec2.sub(p, center);
+  return Vec2.dot(d, d) <= this.m_radius * this.m_radius;
+}
+
+// Collision Detection in Interactive 3D Environments by Gino van den Bergen
+// From Section 3.1.2
+// x = s + a * r
+// norm(x) = radius
+CircleShape.prototype.rayCast = function(output, input, xf, childIndex) {
+
+  var position = Vec2.add(xf.p, Rot.mulVec2(xf.q, this.m_p));
+  var s = Vec2.sub(input.p1, position);
+  var b = Vec2.dot(s, s) - this.m_radius * this.m_radius;
+  var r = Vec2.sub(input.p2, input.p1);
+
+  if (b < 0.0) {
+    output.fraction = 0;
+    output.normal = r.neg().normal();
+    return true;
+  }
+
+  // Solve quadratic equation.
+  var c = Vec2.dot(s, r);
+  var rr = Vec2.dot(r, r);
+  var sigma = c * c - rr * b;
+
+  // Check for negative discriminant and short segment.
+  if (sigma < 0.0 || rr < Math.EPSILON) {
+    return false;
+  }
+
+  // Find the point of intersection of the line with the circle.
+  var a = -(c + Math.sqrt(sigma));
+
+  // Is the intersection point on the segment?
+  if (0.0 <= a && a <= input.maxFraction * rr) {
+    a /= rr;
+    output.fraction = a;
+    output.normal = Vec2.add(s, Vec2.mul(a, r)).normal();
+    return true;
+  }
+
+  return false;
+}
+
+CircleShape.prototype.computeAABB = function(aabb, xf, childIndex) {
+  var p = Vec2.add(xf.p, Rot.mulVec2(xf.q, this.m_p));
+  aabb.lowerBound.set(p.x - this.m_radius, p.y - this.m_radius);
+  aabb.upperBound.set(p.x + this.m_radius, p.y + this.m_radius);
+}
+
+CircleShape.prototype.computeMass = function(massData, density) {
+  massData.mass = density * Math.PI * this.m_radius * this.m_radius;
+  massData.center = this.m_p;
+  // inertia about the local origin
+  massData.I = massData.mass
+      * (0.5 * this.m_radius * this.m_radius + Vec2.dot(this.m_p, this.m_p));
+}
+
+CircleShape.prototype.computeDistanceProxy = function(proxy) {
+  proxy.m_vertices.push(this.m_p);
+  proxy.m_count = 1;
+  proxy.m_radius = this.m_radius;
+};
+
+CircleShape.prototype.testOverlap = function(transform, childIndex, shape, shapeTransform, shapeChildIndex) {
+  if (shape.m_type == CircleShape.TYPE) {
+    return Contact.circlesOverlap(this, transform, shape, shapeTransform);
+  } else if (shape.m_type == PolygonShape.TYPE) {
+    return Contact.polygonCircleOverlap(shape, shapeTransform, this, transform);
+  } else if (shape.m_type == ChainShape.TYPE) {
+    return Contact.chainCircleOverlap(shape, shapeChildIndex, shapeTransform, this, transform);
+  } else if (shape.m_type == EdgeShape.TYPE) {
+    return Contact.edgeCircleOverlap(shape, shapeTransform, this, transform);
+  }
+};
+
+
+/***/ }),
+/* 22 */
+/***/ (function(module, exports, __webpack_require__) {
+
+/*
+ * Copyright (c) 2016-2018 Ali Shakiba http://shakiba.me/planck.js
+ * Copyright (c) 2006-2011 Erin Catto  http://www.box2d.org
+ *
+ * This software is provided 'as-is', without any express or implied
+ * warranty.  In no event will the authors be held liable for any damages
+ * arising from the use of this software.
+ * Permission is granted to anyone to use this software for any purpose,
+ * including commercial applications, and to alter it and redistribute it
+ * freely, subject to the following restrictions:
+ * 1. The origin of this software must not be misrepresented; you must not
+ * claim that you wrote the original software. If you use this software
+ * in a product, an acknowledgment in the product documentation would be
+ * appreciated but is not required.
+ * 2. Altered source versions must be plainly marked as such, and must not be
+ * misrepresented as being the original software.
+ * 3. This notice may not be removed or altered from any source distribution.
+ */
+
+var _DEBUG =  false ? undefined : false;
+var _ASSERT =  false ? undefined : false;
+
+module.exports = EdgeShape;
+
+var create = __webpack_require__(6);
+var options = __webpack_require__(7);
+var Settings = __webpack_require__(5);
+var Shape = __webpack_require__(16);
+var Math = __webpack_require__(0);
+var Transform = __webpack_require__(3);
+var Rot = __webpack_require__(4);
+var Vec2 = __webpack_require__(1);
+var AABB = __webpack_require__(15);
+
+var p = new Vec2(), p1 = new Vec2(), p2 = new Vec2(), v1 = new Vec2(), v2 = new Vec2(), d = new Vec2();
+
+EdgeShape._super = Shape;
+EdgeShape.prototype = create(EdgeShape._super.prototype);
+
+EdgeShape.TYPE = 'edge';
+
+/**
+ * A line segment (edge) shape. These can be connected in chains or loops to
+ * other edge shapes. The connectivity information is used to ensure correct
+ * contact normals.
+ *
+ * @param {Number} radius Radius extending around the edge.
+ */
+function EdgeShape(v1, v2, radius) {
+  if (!(this instanceof EdgeShape)) {
+    return new EdgeShape(v1, v2);
+  }
+
+  EdgeShape._super.call(this);
+
+  this.m_type = EdgeShape.TYPE;
+  this.m_radius = Settings.polygonRadius;
+
+  // These are the edge vertices
+  this.m_vertex1 = v1 ? Vec2.clone(v1) : Vec2.zero();
+  this.m_vertex2 = v2 ? Vec2.clone(v2) : Vec2.zero();
+
+  if (radius > 0.0) {
+    this.m_edgeRadius = radius;
+    this.m_radius += radius;
+    this.m_noAlignRot = true; // This rotation is used to align the edge to y axis,
+                              // so v1 is in origin and (v1, v2) is codirectional with y.
+  } else {
+    this.m_edgeRadius = 0.0;
+  }
+
+  // Optional adjacent vertices. These are used for smooth collision.
+  // Used by chain shape.
+  this.m_vertex0 = Vec2.zero();
+  this.m_vertex3 = Vec2.zero();
+  this.m_hasVertex0 = false;
+  this.m_hasVertex3 = false;
+}
+
+EdgeShape.prototype.setNext = function(v3) {
+  if (v3) {
+    this.m_vertex3.set(v3);
+    this.m_hasVertex3 = true;
+  } else {
+    this.m_vertex3.setZero();
+    this.m_hasVertex3 = false;
+  }
+  return this;
+};
+
+EdgeShape.prototype.setPrev = function(v0) {
+  if (v0) {
+    this.m_vertex0.set(v0);
+    this.m_hasVertex0 = true;
+  } else {
+    this.m_vertex0.setZero();
+    this.m_hasVertex0 = false;
+  }
+  return this;
+};
+
+/**
+ * Set this as an isolated edge.
+ */
+EdgeShape.prototype._set = function(v1, v2) {
+  this.m_vertex1.set(v1);
+  this.m_vertex2.set(v2);
+  this.m_hasVertex0 = false;
+  this.m_hasVertex3 = false;
+  this.m_noAlignRot = true;
+  return this;
+}
+
+/**
+ * @deprecated
+ */
+EdgeShape.prototype._clone = function() {
+  var clone = new EdgeShape();
+  clone.m_type = this.m_type;
+  clone.m_radius = this.m_radius;
+  clone.m_vertex1.set(this.m_vertex1);
+  clone.m_vertex2.set(this.m_vertex2);
+  clone.m_vertex0.set(this.m_vertex0);
+  clone.m_vertex3.set(this.m_vertex3);
+  clone.m_hasVertex0 = this.m_hasVertex0;
+  clone.m_hasVertex3 = this.m_hasVertex3;
+  clone.m_edgeRadius = this.m_edgeRadius;
+  return clone;
+}
+
+EdgeShape.prototype.getChildCount = function() {
+  return 1;
+}
+
+/**
+ * Test a point for containment in this shape.
+ * 
+ * @param {Transform} xf The shape world transform.
+ * @param {Vec2} p A point in world coordinates.
+ * @return {boolean} True if the point is included into the shape, false otherwise.
+ */
+EdgeShape.prototype.testPoint = function(xf, p) {
+  if (this.m_edgeRadius <= 0.0) { // No radius => we never inside.
+    return false;
+  }
+  // Put the point into the edge's frame of reference.
+  p = p1.set(p).sub(xf.p).rotT(xf.q);
+
+  // Transform all points so v2 is on y axis, positive half-space, v1 is in (0, 0).
+  if (this.m_noAlignRot) {
+    this.m_alignRot = this._getAlignRot();
+    this.m_alignedV2 = this._alignPoint( (this.m_alignedV2 || new Vec2()).set(this.m_vertex2) );
+  }
+  p = this._alignPoint(p);
+  var v2 = this.m_alignedV2;
+
+  var radius = this.m_edgeRadius;
+  if (p.y > v2.y) {
+    var dx = p.x - v2.x, dy = p.y - v2.y;
+    return dx * dx + dy * dy < radius * radius;
+  }
+  if (p.y < 0.0) {
+    return p.x * p.x + p.y * p.y < radius * radius;
+  }
+  return -radius < p.x && p.x < radius;
+};
+
+/**
+ * Creates a rotation to be used to align the edge to y axis.
+ *
+ * @return {Rot} Rotation used to align points.
+ */
+EdgeShape.prototype._getAlignRot = function() {
+  var rot = this.m_alignRot = this.m_alignRot || new Rot();
+  this.m_noAlignRot = false;
+
+  var v1 = this.m_vertex1, v2 = this.m_vertex2;
+  var length = d.set(v2).sub(v1).length();
+
+  if (length <= Math.EPSILON) {
+    return rot;
+  }
+
+  // cos = ( x1 * x2 + y1 * y2 ) / ( length1 * length2 )
+  // sin = ( x1 * y2 - x2 * y1 ) / ( length1 * length2 )
+  // x1 = d.x, y1 = d.y
+  // x2 = 0, y2 = 1
+  // length1 = length, length2 = 1
+  rot.c = d.y / length;
+  rot.s = d.x / length;
+
+  return rot;
+};
+
+/**
+ * Inline-transforms provided point so it's in coordinate system where current edge is aligned to y axis.
+ *
+ * @param {Vec2} p Point.
+ * @return {Vec2} The transformed point.
+ */
+EdgeShape.prototype._alignPoint = function(p) {
+  return p.sub(this.m_vertex1).rot(this.m_alignRot);
+};
+
+// p = p1 + t * d
+// v = v1 + s * e
+// p1 + t * d = v1 + s * e
+// s * e - t * d = p1 - v1
+EdgeShape.prototype.rayCast = function(output, input, xf, childIndex) {
+  // NOT_USED(childIndex);
+
+  if (this.m_edgeRadius > 0.0) {
+    return this.rayCastWithRadius(output, input, xf);
+  }
+
+  v1 = v1.set(this.m_vertex1);
+  v2 = v2.set(this.m_vertex2);
+  v2 = v2.sub(v1);
+  var r = v2;
+  p = p.set(r.y, -r.x);
+  var normal = p;
+  var length = normal.normalize();
+
+  if (length <= Math.EPSILON) { // The edge is a point, can't intersect.
+    return false;
+  }
+
+  // Put the ray into the edge's frame of reference.
+  p1 = p1.set(input.p1).sub(xf.p).rotT(xf.q);
+  p2 = p2.set(input.p2).sub(xf.p).rotT(xf.q);
+  d = d.set(p2).sub(p1);
+
+  // q = p1 + t * d
+  // dot(normal, q - v1) = 0
+  // dot(normal, p1 - v1) + t * dot(normal, d) = 0
+  var denominator = Vec2.dot(normal, d);
+
+  if (denominator <= Math.EPSILON) { // Ray is parallel to the edge.
+    return false;
+  }
+
+  p2 = p2.set(v1).sub(p1);
+  var numerator = Vec2.dot(normal, p2);
+
+  var t = numerator / denominator;
+  if (t < 0.0 || input.maxFraction < t) {
+    return false;
+  }
+
+  // q = v1 + s * r
+  // s = dot(q - v1, r) / dot(r, r)
+  var rr = length * length;
+
+  // q = p1 + t * d
+  d = d.mul(t);
+  p1 = p1.add(d);
+  var q = p1;
+
+  q = q.sub(v1);
+  var s = Vec2.dot(q, r) / rr;
+  if (s < 0.0 || 1.0 < s) {
+    return false;
+  }
+
+  output.fraction = t;
+  if (numerator > 0.0) {
+    output.normal = normal.rot(xf.q).neg(); // We are safe to return a reference as it's coppied in c# wrapper.
+  } else {
+    output.normal = normal.rot(xf.q); // We are safe to return a reference as it's coppied in c# wrapper.
+  }
+  return true;
+};
+
+/**
+ * Used internally to do ray casts if current edge has positive radius.
+ *
+ * @param {RayCastOutput} output The ray-cast results.
+ * @param {RayCastInput} input The ray-cast input parameters.
+ * @param {Transform} transform The transform to be applied to the shape.
+ */
+EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
+  if (this.m_noAlignRot) {
+    this.m_alignRot = this._getAlignRot();
+    this.m_alignedV2 = this._alignPoint( (this.m_alignedV2 || new Vec2()).set(this.m_vertex2) );
+  }
+
+  var radius = this.m_edgeRadius;
+
+  // Put the ray into the edge's frame of reference.
+  p1 = this._alignPoint( p1.set(input.p1).sub(xf.p).rotT(xf.q) );
+  p2 = this._alignPoint( p2.set(input.p2).sub(xf.p).rotT(xf.q) );
+  d = d.set(p2).sub(p1);
+  var dx = d.x;
+
+  if (-Math.EPSILON <= dx && dx <= Math.EPSILON) { // The ray runs parallel to edge y axis.
+    var px = p1.x; // Intersection point x component.
+    if (px <= -radius || radius <= px) { // The ray runs parallel to the edge and fully outside of its radius.
+      return false;
+    }
+    var height = this.m_alignedV2.y;
+    var ry = Math.sqrt(radius * radius - px * px);
+    var py = height + ry; // Intersection point y component.
+
+    if (p1.y >= py) { // The ray starts above top.
+      if (p2.y >= py) { // The ray ends above top, it's fully outside.
+        return false;
+      }
+      output.fraction = (p1.y - py) / d.length();
+      output.normal = p.set(px, ry); // Will be coppied in c# wrapper.
+      output.normal.mul(1.0 / radius);
+    } else if (p1.y <= -ry) { // The ray starts below bottom.
+      if (p2.y <= -ry) { // The ray ends below bottom, it's fully outside.
+        return false;
+      }
+      output.fraction = (-p1.y - ry) / d.length();
+      output.normal = p.set(px, -ry); // Will be coppied in c# wrapper.
+      output.normal.mul(1.0 / radius);
+    } else { // The ray starts between top and bottom.
+      output.fraction = 0.0;
+      output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
+    }
+  } else { // The ray is not parallel to edge y axis.
+    var p1x = p1.x;
+    var t1 = (-radius - p1x) / dx; // Intersection points of the ray line and cylinder containing edge with radius.
+    var t2 = (radius - p1x) / dx;
+
+    if ( (t1 <= 0.0 && t2 <= 0.0) || (t1 >= 1.0 && t2 >= 1.0) ) { // Intersections are outside of the ray.
+      return false;
+    }
+
+    if (t1 > t2) {
+      var t = t1;
+      t1 = t2;
+      t2 = t;
+    }
+
+    var dy = d.y;
+    var p1y = p1.y;
+    var y1 = p1y + t1 * dy;
+    if (y1 > height) { // Line intersects cylinder above edge top.
+      var a = dx * dx + dy * dy;
+      var c = p1x * p1x + (p1y - height) * (p1y - height) - radius * radius;
+      var k = p1x * dx + dy * (p1y - height);
+      var discr = k * k - a * c;
+
+      if (discr <= Math.EPSILON) { // Line doesn't intersect top circle.
+        return false;
+      }
+
+      var discrSqrt = Math.sqrt(discr);
+      var t3 = (-k - discrSqrt) / a; // Line and top circle intersection closest to start point.
+
+      if (t3 >= 0.0) { 
+        if (t3 < 1.0) { // Intersection is inside of the segment.
+          output.fraction = t3;
+          output.normal = p.set(p1x + t3 * dx, p1y + t3 * dy - height); // Will be coppied in c# wrapper.
+          output.normal.mul(1.0 / radius);
+        } else { // Intersection is after segment ends.
+          return false;
+        }
+      } else { // The ray is pointing away from the line and top circle first intersection.
+        var t4 = (-k + discrSqrt) / a; 
+        var y4 = p1y + t4 * dy;
+
+        if (y4 >= height) { // Line and top circle intersection happens on the shape surface.
+          if (t4 <= 0.0) { // Start point is outside of semicircle.
+            return false;
+          }
+          // Start point is inside of semicircle.
+        } else { // Line intersects bottom semicircle of the top circle.
+          var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
+          if (y2 < 0.0) { // Line intersects cylinder below edge bottom, i. e. intersects bottom circle.
+
+            c += height * (2 * p1y - height);
+            k += dy * height;
+            discr = k * k - a * c;
+
+            if (discr <= 0.0) { // Line doesn't intersect bottom circle or has single intersection point, that should never happen.
+              return false;
+            }
+
+            discrSqrt = Math.sqrt(discr);
+            t4 = (-k + discrSqrt) / a;
+
+            if (t4 <= 0.0) { // The ray is pointing away from bottom circle, no intersections.
+              return false;
+            }
+            // The ray starts inside of the shape.
+          } // Line intersects cylinder inside of the shape.
+        }
+        output.fraction = 0.0;
+        output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
+      }
+    } else if (y1 < 0.0) { // Line intersects cylinder below edge bottom.
+      var a = dx * dx + dy * dy;
+      var c = p1x * p1x + p1y * p1y - radius * radius;
+      var k = p1x * dx + p1y * dy;
+      var discr = k * k - a * c;
+
+      if (discr <= Math.EPSILON) { // Line doesn't intersect bottom circle.
+        return false;
+      }
+
+      var discrSqrt = Math.sqrt(discr);
+      var t3 = (-k - discrSqrt) / a; // Line and bottom circle intersection closest to start point.
+
+      if (t3 >= 0.0) { 
+        if (t3 < 1.0) { // Intersection is inside of the segment.
+          output.fraction = t3;
+          output.normal = p.set(p1x + t3 * dx, p1y + t3 * dy); // Will be coppied in c# wrapper.
+          output.normal.mul(1.0 / radius);
+        } else { // Intersection is after segment ends.
+          return false;
+        }
+      } else { // The ray is pointing away from the line and bottom circle first intersection.
+        var t4 = (-k + discrSqrt) / a; 
+        var y4 = p1y + t4 * dy;
+
+        if (y4 <= 0.0) { // Line and bottom circle intersection happens on the shape surface.
+          if (t4 <= 0.0) { // Start point is outside of semicircle.
+            return false;
+          }
+          // Start point is inside of semicircle.
+        } else { // Line intersects top semicircle of the bottom circle.
+          var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
+          if (y2 > height) { // Line intersects cylinder above edge bottom, i. e. intersects top circle.
+
+            c -= height * (2 * p1y - height);
+            k -= dy * height;
+            discr = k * k - a * c;
+
+            if (discr <= 0.0) { // Line doesn't intersect top circle or has single intersection point, that should never happen.
+              return false;
+            }
+
+            discrSqrt = Math.sqrt(discr);
+            t4 = (-k + discrSqrt) / a;
+
+            if (t4 <= 0.0) { // The ray is pointing away from top circle, no intersections.
+              return false;
+            }
+            // The ray starts inside of the shape.
+          } // Line intersects cylinder inside of the shape.
+        }
+        output.fraction = 0.0;
+        output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
+      }
+    } else if (t1 >= 0.0) { // The ray intersects cylinder between top and bottom (first intersection point).
+      output.fraction = t1;
+      output.normal = p.set(dx > 0.0 ? -1.0 : 1.0, 0.0); // Will be coppied in c# wrapper.
+    } else { // Start point is inside of cylinder and the ray is pointing away from first intersection point.
+      var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
+
+      if (y2 > height) { // Line intersects cylinder above edge top.
+        var a = dx * dx + dy * dy;
+        var c = p1x * p1x + (p1y - height) * (p1y - height) - radius * radius;
+        var k = p1x * dx + dy * (p1y - height);
+        var discr = k * k - a * c;
+
+        if (discr <= 0.0) { // Line doesn't intersect top circle or has single intersection point, that should never happen.
+          return false;
+        }
+
+        var discrSqrt = Math.sqrt(discr);
+        var t4 = (-k + discrSqrt) / a; // Line and top circle intersection point, the most distant from the start point.
+
+        if (t4 <= 0.0) { // The ray is pointing away from the top circle.
+          return false;
+        }
+      } else if (y2 < 0.0) { // Line intersects cylinder below edge bottom.
+        var a = dx * dx + dy * dy;
+        var c = p1x * p1x + p1y * p1y - radius * radius;
+        var k = p1x * dx + p1y * dy;
+        var discr = k * k - a * c;
+
+        if (discr <= 0.0) { // Line doesn't intersect bottom circle or has single intersection point, that should never happen.
+          return false;
+        }
+
+        var discrSqrt = Math.sqrt(discr);
+        var t4 = (-k + discrSqrt) / a; // Line and bottom circle intersection point, the most distant from the start point.
+
+        if (t4 <= 0.0) { // The ray is pointing away from the bottom circle.
+          return false;
+        }
+      }
+      // The ray starts inside of the shape.
+      output.fraction = 0.0;
+      output.normal = d.neg().normal();
+    }
+  }
+
+  output.normal.rotT(this.m_alignRot).rot(xf.q);
+  return true;
+};
+
+EdgeShape.prototype.computeAABB = function(aabb, xf, childIndex) {
+  var v1 = Transform.mulVec2(xf, this.m_vertex1);
+  var v2 = Transform.mulVec2(xf, this.m_vertex2);
+
+  aabb.combinePoints(v1, v2);
+  aabb.extend(this.m_radius);
+}
+
+EdgeShape.prototype.computeMass = function(massData, density) {
+  massData.mass = 0.0;
+  massData.center.setCombine(0.5, this.m_vertex1, 0.5, this.m_vertex2);
+  massData.I = 0.0;
+}
+
+EdgeShape.prototype.computeDistanceProxy = function(proxy) {
+  proxy.m_vertices.push(this.m_vertex1);
+  proxy.m_vertices.push(this.m_vertex2);
+  proxy.m_count = 2;
+  proxy.m_radius = this.m_radius;
+};
+
+
+/***/ }),
+/* 23 */
+/***/ (function(module, exports, __webpack_require__) {
+
+/*
+ * Copyright (c) 2016-2018 Ali Shakiba http://shakiba.me/planck.js
+ * Copyright (c) 2006-2011 Erin Catto  http://www.box2d.org
+ *
+ * This software is provided 'as-is', without any express or implied
+ * warranty.  In no event will the authors be held liable for any damages
+ * arising from the use of this software.
+ * Permission is granted to anyone to use this software for any purpose,
+ * including commercial applications, and to alter it and redistribute it
+ * freely, subject to the following restrictions:
+ * 1. The origin of this software must not be misrepresented; you must not
+ * claim that you wrote the original software. If you use this software
+ * in a product, an acknowledgment in the product documentation would be
+ * appreciated but is not required.
+ * 2. Altered source versions must be plainly marked as such, and must not be
+ * misrepresented as being the original software.
+ * 3. This notice may not be removed or altered from any source distribution.
+ */
+
+var _DEBUG =  false ? undefined : false;
+var _ASSERT =  false ? undefined : false;
+
 module.exports = Distance;
 
 module.exports.Input = DistanceInput;
@@ -5385,16 +6107,16 @@ module.exports.Cache = SimplexCache;
 var Settings = __webpack_require__(5);
 var common = __webpack_require__(2);
 
-var stats = __webpack_require__(27);
+var stats = __webpack_require__(28);
 
 var Math = __webpack_require__(0);
 var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -6047,7 +6769,7 @@ Distance.testOverlap = function(shapeA, indexA, shapeB, indexB, xfA, xfB) {
 }
 
 /***/ }),
-/* 22 */
+/* 24 */
 /***/ (function(module, exports, __webpack_require__) {
 
 /*
@@ -6072,299 +6794,201 @@ Distance.testOverlap = function(shapeA, indexA, shapeB, indexB, xfA, xfB) {
 var _DEBUG =  false ? undefined : false;
 var _ASSERT =  false ? undefined : false;
 
-module.exports = CircleShape;
+module.exports = ChainShape;
 
 var common = __webpack_require__(2);
 var create = __webpack_require__(6);
 var options = __webpack_require__(7);
 var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
-var Rot = __webpack_require__(3);
+var Transform = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Vec2 = __webpack_require__(1);
-var AABB = __webpack_require__(16);
+var AABB = __webpack_require__(15);
 var Settings = __webpack_require__(5);
-var Shape = __webpack_require__(15);
+var Shape = __webpack_require__(16);
+var EdgeShape = __webpack_require__(22);
 
-var p = new Vec2(), r = new Vec2();
+ChainShape._super = Shape;
+ChainShape.prototype = create(ChainShape._super.prototype);
 
-CircleShape._super = Shape;
-CircleShape.prototype = create(CircleShape._super.prototype);
-
-CircleShape.TYPE = 'circle';
-
-function CircleShape(a, b) {
-  if (!(this instanceof CircleShape)) {
-    return new CircleShape(a, b);
-  }
-
-  CircleShape._super.call(this);
-
-  this.m_type = CircleShape.TYPE;
-  this.m_p = Vec2.zero();
-  this.m_radius = 1;
-
-  if (typeof a === 'object' && Vec2.isValid(a)) {
-    this.m_p.set(a);
-
-    if (typeof b === 'number') {
-      this.m_radius = b;
-    }
-
-  } else if (typeof a === 'number') {
-    this.m_radius = a;
-  }
-}
-
-CircleShape.prototype.getRadius = function() {
-  return this.m_radius;
-}
-
-CircleShape.prototype.getCenter = function() {
-  return this.m_p;
-}
-
-CircleShape.prototype.getVertex = function(index) {
-  _ASSERT && common.assert(index == 0);
-  return this.m_p;
-}
-
-CircleShape.prototype.getVertexCount = function(index) {
-  return 1;
-}
+ChainShape.TYPE = 'chain';
 
 /**
- * @deprecated
- */
-CircleShape.prototype._clone = function() {
-  var clone = new CircleShape();
-  clone.m_type = this.m_type;
-  clone.m_radius = this.m_radius;
-  clone.m_p = this.m_p.clone();
-  return clone;
-}
-
-CircleShape.prototype.getChildCount = function() {
-  return 1;
-}
-
-CircleShape.prototype.testPoint = function(xf, p) {
-  var center = Vec2.add(xf.p, Rot.mulVec2(xf.q, this.m_p));
-  var d = Vec2.sub(p, center);
-  return Vec2.dot(d, d) <= this.m_radius * this.m_radius;
-}
-
-// Collision Detection in Interactive 3D Environments by Gino van den Bergen
-// From Section 3.1.2
-// x = s + a * r
-// norm(x) = radius
-CircleShape.prototype.rayCast = function(output, input, xf, childIndex) {
-
-  var position = Vec2.add(xf.p, Rot.mulVec2(xf.q, this.m_p));
-  var s = Vec2.sub(input.p1, position);
-  var b = Vec2.dot(s, s) - this.m_radius * this.m_radius;
-  var r = Vec2.sub(input.p2, input.p1);
-
-  if (b < 0.0) {
-    output.fraction = 0;
-    output.normal = r.neg().normal();
-    return true;
-  }
-
-  // Solve quadratic equation.
-  var c = Vec2.dot(s, r);
-  var rr = Vec2.dot(r, r);
-  var sigma = c * c - rr * b;
-
-  // Check for negative discriminant and short segment.
-  if (sigma < 0.0 || rr < Math.EPSILON) {
-    return false;
-  }
-
-  // Find the point of intersection of the line with the circle.
-  var a = -(c + Math.sqrt(sigma));
-
-  // Is the intersection point on the segment?
-  if (0.0 <= a && a <= input.maxFraction * rr) {
-    a /= rr;
-    output.fraction = a;
-    output.normal = Vec2.add(s, Vec2.mul(a, r)).normal();
-    return true;
-  }
-
-  return false;
-}
-
-CircleShape.prototype.computeAABB = function(aabb, xf, childIndex) {
-  var p = Vec2.add(xf.p, Rot.mulVec2(xf.q, this.m_p));
-  aabb.lowerBound.set(p.x - this.m_radius, p.y - this.m_radius);
-  aabb.upperBound.set(p.x + this.m_radius, p.y + this.m_radius);
-}
-
-CircleShape.prototype.computeMass = function(massData, density) {
-  massData.mass = density * Math.PI * this.m_radius * this.m_radius;
-  massData.center = this.m_p;
-  // inertia about the local origin
-  massData.I = massData.mass
-      * (0.5 * this.m_radius * this.m_radius + Vec2.dot(this.m_p, this.m_p));
-}
-
-CircleShape.prototype.computeDistanceProxy = function(proxy) {
-  proxy.m_vertices.push(this.m_p);
-  proxy.m_count = 1;
-  proxy.m_radius = this.m_radius;
-};
-
-CircleShape.prototype.testOverlap = function(transform, childIndex, shape, shapeTransform, shapeChildIndex) {
-  if (shape.m_type != CircleShape.TYPE) {
-    return; // Only circles are supported.
-  }
-
-  p = p.set(this.m_p).rot(transform.q).add(transform.p);
-  r = r.set(shape.m_p).rot(shapeTransform.q).add(shapeTransform.p);
-
-  var lengthSquared = p.sub(r).lengthSquared();
-  var radiusSum = this.m_radius + shape.m_radius;
-
-  return radiusSum * radiusSum > lengthSquared
-};
-
-
-/***/ }),
-/* 23 */
-/***/ (function(module, exports, __webpack_require__) {
-
-/*
- * Copyright (c) 2016-2018 Ali Shakiba http://shakiba.me/planck.js
- * Copyright (c) 2006-2011 Erin Catto  http://www.box2d.org
+ * A chain shape is a free form sequence of line segments. The chain has
+ * two-sided collision, so you can use inside and outside collision. Therefore,
+ * you may use any winding order. Connectivity information is used to create
+ * smooth collisions.
+ * 
+ * WARNING: The chain will not collide properly if there are self-intersections.
  *
- * This software is provided 'as-is', without any express or implied
- * warranty.  In no event will the authors be held liable for any damages
- * arising from the use of this software.
- * Permission is granted to anyone to use this software for any purpose,
- * including commercial applications, and to alter it and redistribute it
- * freely, subject to the following restrictions:
- * 1. The origin of this software must not be misrepresented; you must not
- * claim that you wrote the original software. If you use this software
- * in a product, an acknowledgment in the product documentation would be
- * appreciated but is not required.
- * 2. Altered source versions must be plainly marked as such, and must not be
- * misrepresented as being the original software.
- * 3. This notice may not be removed or altered from any source distribution.
+ * @param {Number} radius Radius extending around the chain.
  */
-
-var _DEBUG =  false ? undefined : false;
-var _ASSERT =  false ? undefined : false;
-
-module.exports = EdgeShape;
-
-var create = __webpack_require__(6);
-var options = __webpack_require__(7);
-var Settings = __webpack_require__(5);
-var Shape = __webpack_require__(15);
-var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
-var Rot = __webpack_require__(3);
-var Vec2 = __webpack_require__(1);
-var AABB = __webpack_require__(16);
-
-var p = new Vec2(), p1 = new Vec2(), p2 = new Vec2(), v1 = new Vec2(), v2 = new Vec2(), d = new Vec2();
-
-EdgeShape._super = Shape;
-EdgeShape.prototype = create(EdgeShape._super.prototype);
-
-EdgeShape.TYPE = 'edge';
-
-/**
- * A line segment (edge) shape. These can be connected in chains or loops to
- * other edge shapes. The connectivity information is used to ensure correct
- * contact normals.
- *
- * @param {Number} radius Radius extending around the edge.
- */
-function EdgeShape(v1, v2, radius) {
-  if (!(this instanceof EdgeShape)) {
-    return new EdgeShape(v1, v2);
+function ChainShape(vertices, loop, radius) {
+  if (!(this instanceof ChainShape)) {
+    return new ChainShape(vertices, loop);
   }
 
-  EdgeShape._super.call(this);
+  ChainShape._super.call(this);
 
-  this.m_type = EdgeShape.TYPE;
+  this.m_type = ChainShape.TYPE;
   this.m_radius = Settings.polygonRadius;
-
-  // These are the edge vertices
-  this.m_vertex1 = v1 ? Vec2.clone(v1) : Vec2.zero();
-  this.m_vertex2 = v2 ? Vec2.clone(v2) : Vec2.zero();
-
+  this.m_vertices = [];
+  this.m_count = 0;
+  this.m_prevVertex = null;
+  this.m_nextVertex = null;
+  this.m_hasPrevVertex = false;
+  this.m_hasNextVertex = false;
   if (radius > 0.0) {
     this.m_edgeRadius = radius;
     this.m_radius += radius;
-    this.m_noAlignRot = true; // This rotation is used to align the edge to y axis,
-                              // so v1 is in origin and (v1, v2) is codirectional with y.
   } else {
     this.m_edgeRadius = 0.0;
   }
 
-  // Optional adjacent vertices. These are used for smooth collision.
-  // Used by chain shape.
-  this.m_vertex0 = Vec2.zero();
-  this.m_vertex3 = Vec2.zero();
-  this.m_hasVertex0 = false;
-  this.m_hasVertex3 = false;
+  if (vertices && vertices.length) {
+    if (loop) {
+      this._createLoop(vertices);
+    } else {
+      this._createChain(vertices);
+    }
+  }
 }
 
-EdgeShape.prototype.setNext = function(v3) {
-  if (v3) {
-    this.m_vertex3.set(v3);
-    this.m_hasVertex3 = true;
-  } else {
-    this.m_vertex3.setZero();
-    this.m_hasVertex3 = false;
-  }
-  return this;
-};
-
-EdgeShape.prototype.setPrev = function(v0) {
-  if (v0) {
-    this.m_vertex0.set(v0);
-    this.m_hasVertex0 = true;
-  } else {
-    this.m_vertex0.setZero();
-    this.m_hasVertex0 = false;
-  }
-  return this;
-};
+// ChainShape.clear = function() {
+// this.m_vertices.length = 0;
+// this.m_count = 0;
+// }
 
 /**
- * Set this as an isolated edge.
+ * Create a loop. This automatically adjusts connectivity.
+ * 
+ * @param vertices an array of vertices, these are copied
+ * @param count the vertex count
  */
-EdgeShape.prototype._set = function(v1, v2) {
-  this.m_vertex1.set(v1);
-  this.m_vertex2.set(v2);
-  this.m_hasVertex0 = false;
-  this.m_hasVertex3 = false;
-  this.m_noAlignRot = true;
+ChainShape.prototype._createLoop = function(vertices) {
+  /*_ASSERT && common.assert(this.m_vertices.length == 0 && this.m_count == 0);
+  _ASSERT && common.assert(vertices.length >= 3);
+  for (var i = 1; i < vertices.length; ++i) {
+    var v1 = vertices[i - 1];
+    var v2 = vertices[i];
+    // If the code crashes here, it means your vertices are too close together.
+    _ASSERT && common.assert(Vec2.distanceSquared(v1, v2) > Settings.linearSlopSquared);
+  }*/
+
+  this.m_vertices.length = 0;
+  this.m_count = vertices.length + 1;
+  for (var i = 0; i < vertices.length; ++i) {
+    this.m_vertices[i] = vertices[i].clone();
+  }
+  this.m_vertices[vertices.length] = vertices[0].clone();
+
+  this.m_prevVertex = this.m_vertices[this.m_count - 2];
+  this.m_nextVertex = this.m_vertices[1];
+  this.m_hasPrevVertex = true;
+  this.m_hasNextVertex = true;
   return this;
+}
+
+/**
+ * Create a chain with isolated end vertices.
+ * 
+ * @param vertices an array of vertices, these are copied
+ * @param count the vertex count
+ */
+ChainShape.prototype._createChain = function(vertices) {
+  /*_ASSERT && common.assert(this.m_vertices.length == 0 && this.m_count == 0);
+  _ASSERT && common.assert(vertices.length >= 2);
+  for (var i = 1; i < vertices.length; ++i) {
+    // If the code crashes here, it means your vertices are too close together.
+    var v1 = vertices[i - 1];
+    var v2 = vertices[i];
+    _ASSERT && common.assert(Vec2.distanceSquared(v1, v2) > Settings.linearSlopSquared);
+  }*/
+
+  this.m_count = this.m_vertices.length = vertices.length;
+  for (var i = 0; i < vertices.length; ++i) {
+    this.m_vertices[i] = vertices[i].clone();
+  }
+
+  this.m_hasPrevVertex = false;
+  this.m_hasNextVertex = false;
+  this.m_prevVertex = null;
+  this.m_nextVertex = null;
+  return this;
+}
+
+/**
+ * Establish connectivity to a vertex that precedes the first vertex. Don't call
+ * this for loops.
+ */
+ChainShape.prototype._setPrevVertex = function(prevVertex) {
+  this.m_prevVertex = prevVertex;
+  this.m_hasPrevVertex = true;
+}
+
+/**
+ * Establish connectivity to a vertex that follows the last vertex. Don't call
+ * this for loops.
+ */
+ChainShape.prototype._setNextVertex = function(nextVertex) {
+  this.m_nextVertex = nextVertex;
+  this.m_hasNextVertex = true;
 }
 
 /**
  * @deprecated
  */
-EdgeShape.prototype._clone = function() {
-  var clone = new EdgeShape();
+ChainShape.prototype._clone = function() {
+  var clone = new ChainShape();
+  clone.createChain(this.m_vertices);
   clone.m_type = this.m_type;
   clone.m_radius = this.m_radius;
-  clone.m_vertex1.set(this.m_vertex1);
-  clone.m_vertex2.set(this.m_vertex2);
-  clone.m_vertex0.set(this.m_vertex0);
-  clone.m_vertex3.set(this.m_vertex3);
-  clone.m_hasVertex0 = this.m_hasVertex0;
-  clone.m_hasVertex3 = this.m_hasVertex3;
-  clone.m_edgeRadius = this.m_edgeRadius;
+  clone.m_prevVertex = this.m_prevVertex;
+  clone.m_nextVertex = this.m_nextVertex;
+  clone.m_hasPrevVertex = this.m_hasPrevVertex;
+  clone.m_hasNextVertex = this.m_hasNextVertex;
   return clone;
 }
 
-EdgeShape.prototype.getChildCount = function() {
-  return 1;
+ChainShape.prototype.getChildCount = function() {
+  // edge count = vertex count - 1
+  return this.m_count > 0 ? this.m_count - 1 : 0;
+}
+
+// Get a child edge.
+ChainShape.prototype.getChildEdge = function(edge, childIndex) {
+  _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count - 1);
+  edge.m_type = EdgeShape.TYPE;
+  edge.m_radius = this.m_radius;
+  edge.m_edgeRadius = this.m_edgeRadius;
+
+  edge.m_vertex1 = this.m_vertices[childIndex];
+  edge.m_vertex2 = this.m_vertices[childIndex + 1];
+
+  if (childIndex > 0) {
+    edge.m_vertex0 = this.m_vertices[childIndex - 1];
+    edge.m_hasVertex0 = true;
+  } else {
+    edge.m_vertex0 = this.m_prevVertex;
+    edge.m_hasVertex0 = this.m_hasPrevVertex;
+  }
+
+  if (childIndex < this.m_count - 2) {
+    edge.m_vertex3 = this.m_vertices[childIndex + 2];
+    edge.m_hasVertex3 = true;
+  } else {
+    edge.m_vertex3 = this.m_nextVertex;
+    edge.m_hasVertex3 = this.m_hasNextVertex;
+  }
+}
+
+ChainShape.prototype.getVertex = function(index) {
+  _ASSERT && common.assert(0 <= index && index <= this.m_count);
+  if (index < this.m_count) {
+    return this.m_vertices[index];
+  } else {
+    return this.m_vertices[0];
+  }
 }
 
 /**
@@ -6374,385 +6998,62 @@ EdgeShape.prototype.getChildCount = function() {
  * @param {Vec2} p A point in world coordinates.
  * @return {boolean} True if the point is included into the shape, false otherwise.
  */
-EdgeShape.prototype.testPoint = function(xf, p) {
-  if (this.m_edgeRadius <= 0.0) { // No radius => we never inside.
+ChainShape.prototype.testPoint = function(xf, p) {
+  if (this.m_edgeRadius <= 0.0 || this.m_count < 2) {
     return false;
   }
-  // Put the point into the edge's frame of reference.
-  p = p1.set(p).sub(xf.p).rotT(xf.q);
-
-  // Transform all points so v2 is on y axis, positive half-space, v1 is in (0, 0).
-  if (this.m_noAlignRot) {
-    this.m_alignRot = this._getAlignRot();
-    this.m_alignedV2 = this._alignPoint( (this.m_alignedV2 || new Vec2()).set(this.m_vertex2) );
+  var vertices = this.m_vertices;
+  var edgeShape = new EdgeShape(vertices[0], vertices[1], this.m_edgeRadius);
+  if (edgeShape.testPoint(xf, p)) {
+    return true;
   }
-  p = this._alignPoint(p);
-  var v2 = this.m_alignedV2;
-
-  var radius = this.m_edgeRadius;
-  if (p.y > v2.y) {
-    var dx = p.x - v2.x, dy = p.y - v2.y;
-    return dx * dx + dy * dy < radius * radius;
-  }
-  if (p.y < 0.0) {
-    return p.x * p.x + p.y * p.y < radius * radius;
-  }
-  return -radius < p.x && p.x < radius;
-};
-
-/**
- * Creates a rotation to be used to align the edge to y axis.
- *
- * @return {Rot} Rotation used to align points.
- */
-EdgeShape.prototype._getAlignRot = function() {
-  var rot = this.m_alignRot = this.m_alignRot || new Rot();
-  this.m_noAlignRot = false;
-
-  var v1 = this.m_vertex1, v2 = this.m_vertex2;
-  var length = d.set(v2).sub(v1).length();
-
-  if (length <= Math.EPSILON) {
-    return rot;
-  }
-
-  // cos = ( x1 * x2 + y1 * y2 ) / ( length1 * length2 )
-  // sin = ( x1 * y2 - x2 * y1 ) / ( length1 * length2 )
-  // x1 = d.x, y1 = d.y
-  // x2 = 0, y2 = 1
-  // length1 = length, length2 = 1
-  rot.c = d.y / length;
-  rot.s = d.x / length;
-
-  return rot;
-};
-
-/**
- * Inline-transforms provided point so it's in coordinate system where current edge is aligned to y axis.
- *
- * @param {Vec2} p Point.
- * @return {Vec2} The transformed point.
- */
-EdgeShape.prototype._alignPoint = function(p) {
-  return p.sub(this.m_vertex1).rot(this.m_alignRot);
-};
-
-// p = p1 + t * d
-// v = v1 + s * e
-// p1 + t * d = v1 + s * e
-// s * e - t * d = p1 - v1
-EdgeShape.prototype.rayCast = function(output, input, xf, childIndex) {
-  // NOT_USED(childIndex);
-
-  if (this.m_edgeRadius > 0.0) {
-    return this.rayCastWithRadius(output, input, xf);
-  }
-
-  v1 = v1.set(this.m_vertex1);
-  v2 = v2.set(this.m_vertex2);
-  v2 = v2.sub(v1);
-  var r = v2;
-  p = p.set(r.y, -r.x);
-  var normal = p;
-  var length = normal.normalize();
-
-  if (length <= Math.EPSILON) { // The edge is a point, can't intersect.
-    return false;
-  }
-
-  // Put the ray into the edge's frame of reference.
-  p1 = p1.set(input.p1).sub(xf.p).rotT(xf.q);
-  p2 = p2.set(input.p2).sub(xf.p).rotT(xf.q);
-  d = d.set(p2).sub(p1);
-
-  // q = p1 + t * d
-  // dot(normal, q - v1) = 0
-  // dot(normal, p1 - v1) + t * dot(normal, d) = 0
-  var denominator = Vec2.dot(normal, d);
-
-  if (denominator <= Math.EPSILON) { // Ray is parallel to the edge.
-    return false;
-  }
-
-  p2 = p2.set(v1).sub(p1);
-  var numerator = Vec2.dot(normal, p2);
-
-  var t = numerator / denominator;
-  if (t < 0.0 || input.maxFraction < t) {
-    return false;
-  }
-
-  // q = v1 + s * r
-  // s = dot(q - v1, r) / dot(r, r)
-  var rr = length * length;
-
-  // q = p1 + t * d
-  d = d.mul(t);
-  p1 = p1.add(d);
-  var q = p1;
-
-  q = q.sub(v1);
-  var s = Vec2.dot(q, r) / rr;
-  if (s < 0.0 || 1.0 < s) {
-    return false;
-  }
-
-  output.fraction = t;
-  if (numerator > 0.0) {
-    output.normal = normal.rot(xf.q).neg(); // We are safe to return a reference as it's coppied in c# wrapper.
-  } else {
-    output.normal = normal.rot(xf.q); // We are safe to return a reference as it's coppied in c# wrapper.
-  }
-  return true;
-};
-
-/**
- * Used internally to do ray casts if current edge has positive radius.
- *
- * @param {RayCastOutput} output The ray-cast results.
- * @param {RayCastInput} input The ray-cast input parameters.
- * @param {Transform} transform The transform to be applied to the shape.
- */
-EdgeShape.prototype.rayCastWithRadius = function(output, input, xf) {
-  if (this.m_noAlignRot) {
-    this.m_alignRot = this._getAlignRot();
-    this.m_alignedV2 = this._alignPoint( (this.m_alignedV2 || new Vec2()).set(this.m_vertex2) );
-  }
-
-  var radius = this.m_edgeRadius;
-
-  // Put the ray into the edge's frame of reference.
-  p1 = this._alignPoint( p1.set(input.p1).sub(xf.p).rotT(xf.q) );
-  p2 = this._alignPoint( p2.set(input.p2).sub(xf.p).rotT(xf.q) );
-  d = d.set(p2).sub(p1);
-  var dx = d.x;
-
-  if (-Math.EPSILON <= dx && dx <= Math.EPSILON) { // The ray runs parallel to edge y axis.
-    var px = p1.x; // Intersection point x component.
-    if (px <= -radius || radius <= px) { // The ray runs parallel to the edge and fully outside of its radius.
-      return false;
-    }
-    var height = this.m_alignedV2.y;
-    var ry = Math.sqrt(radius * radius - px * px);
-    var py = height + ry; // Intersection point y component.
-
-    if (p1.y >= py) { // The ray starts above top.
-      if (p2.y >= py) { // The ray ends above top, it's fully outside.
-        return false;
-      }
-      output.fraction = (p1.y - py) / d.length();
-      output.normal = p.set(px, ry); // Will be coppied in c# wrapper.
-      output.normal.mul(1.0 / radius);
-    } else if (p1.y <= -ry) { // The ray starts below bottom.
-      if (p2.y <= -ry) { // The ray ends below bottom, it's fully outside.
-        return false;
-      }
-      output.fraction = (-p1.y - ry) / d.length();
-      output.normal = p.set(px, -ry); // Will be coppied in c# wrapper.
-      output.normal.mul(1.0 / radius);
-    } else { // The ray starts between top and bottom.
-      output.fraction = 0.0;
-      output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
-    }
-  } else { // The ray is not parallel to edge y axis.
-    var p1x = p1.x;
-    var t1 = (-radius - p1x) / dx; // Intersection points of the ray line and cylinder containing edge with radius.
-    var t2 = (radius - p1x) / dx;
-
-    if ( (t1 <= 0.0 && t2 <= 0.0) || (t1 >= 1.0 && t2 >= 1.0) ) { // Intersections are outside of the ray.
-      return false;
-    }
-
-    if (t1 > t2) {
-      var t = t1;
-      t1 = t2;
-      t2 = t;
-    }
-
-    var dy = d.y;
-    var p1y = p1.y;
-    var y1 = p1y + t1 * dy;
-    if (y1 > height) { // Line intersects cylinder above edge top.
-      var a = dx * dx + dy * dy;
-      var c = p1x * p1x + (p1y - height) * (p1y - height) - radius * radius;
-      var k = p1x * dx + dy * (p1y - height);
-      var discr = k * k - a * c;
-
-      if (discr <= Math.EPSILON) { // Line doesn't intersect top circle.
-        return false;
-      }
-
-      var discrSqrt = Math.sqrt(discr);
-      var t3 = (-k - discrSqrt) / a; // Line and top circle intersection closest to start point.
-
-      if (t3 >= 0.0) { 
-        if (t3 < 1.0) { // Intersection is inside of the segment.
-          output.fraction = t3;
-          output.normal = p.set(p1x + t3 * dx, p1y + t3 * dy - height); // Will be coppied in c# wrapper.
-          output.normal.mul(1.0 / radius);
-        } else { // Intersection is after segment ends.
-          return false;
-        }
-      } else { // The ray is pointing away from the line and top circle first intersection.
-        var t4 = (-k + discrSqrt) / a; 
-        var y4 = p1y + t4 * dy;
-
-        if (y4 >= height) { // Line and top circle intersection happens on the shape surface.
-          if (t4 <= 0.0) { // Start point is outside of semicircle.
-            return false;
-          }
-          // Start point is inside of semicircle.
-        } else { // Line intersects bottom semicircle of the top circle.
-          var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
-          if (y2 < 0.0) { // Line intersects cylinder below edge bottom, i. e. intersects bottom circle.
-
-            c += height * (2 * p1y - height);
-            k += dy * height;
-            discr = k * k - a * c;
-
-            if (discr <= 0.0) { // Line doesn't intersect bottom circle or has single intersection point, that should never happen.
-              return false;
-            }
-
-            discrSqrt = Math.sqrt(discr);
-            t4 = (-k + discrSqrt) / a;
-
-            if (t4 <= 0.0) { // The ray is pointing away from bottom circle, no intersections.
-              return false;
-            }
-            // The ray starts inside of the shape.
-          } // Line intersects cylinder inside of the shape.
-        }
-        output.fraction = 0.0;
-        output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
-      }
-    } else if (y1 < 0.0) { // Line intersects cylinder below edge bottom.
-      var a = dx * dx + dy * dy;
-      var c = p1x * p1x + p1y * p1y - radius * radius;
-      var k = p1x * dx + p1y * dy;
-      var discr = k * k - a * c;
-
-      if (discr <= Math.EPSILON) { // Line doesn't intersect bottom circle.
-        return false;
-      }
-
-      var discrSqrt = Math.sqrt(discr);
-      var t3 = (-k - discrSqrt) / a; // Line and bottom circle intersection closest to start point.
-
-      if (t3 >= 0.0) { 
-        if (t3 < 1.0) { // Intersection is inside of the segment.
-          output.fraction = t3;
-          output.normal = p.set(p1x + t3 * dx, p1y + t3 * dy); // Will be coppied in c# wrapper.
-          output.normal.mul(1.0 / radius);
-        } else { // Intersection is after segment ends.
-          return false;
-        }
-      } else { // The ray is pointing away from the line and bottom circle first intersection.
-        var t4 = (-k + discrSqrt) / a; 
-        var y4 = p1y + t4 * dy;
-
-        if (y4 <= 0.0) { // Line and bottom circle intersection happens on the shape surface.
-          if (t4 <= 0.0) { // Start point is outside of semicircle.
-            return false;
-          }
-          // Start point is inside of semicircle.
-        } else { // Line intersects top semicircle of the bottom circle.
-          var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
-          if (y2 > height) { // Line intersects cylinder above edge bottom, i. e. intersects top circle.
-
-            c -= height * (2 * p1y - height);
-            k -= dy * height;
-            discr = k * k - a * c;
-
-            if (discr <= 0.0) { // Line doesn't intersect top circle or has single intersection point, that should never happen.
-              return false;
-            }
-
-            discrSqrt = Math.sqrt(discr);
-            t4 = (-k + discrSqrt) / a;
-
-            if (t4 <= 0.0) { // The ray is pointing away from top circle, no intersections.
-              return false;
-            }
-            // The ray starts inside of the shape.
-          } // Line intersects cylinder inside of the shape.
-        }
-        output.fraction = 0.0;
-        output.normal = d.neg().normal(); // Will be coppied in c# wrapper.
-      }
-    } else if (t1 >= 0.0) { // The ray intersects cylinder between top and bottom (first intersection point).
-      output.fraction = t1;
-      output.normal = p.set(dx > 0.0 ? -1.0 : 1.0, 0.0); // Will be coppied in c# wrapper.
-    } else { // Start point is inside of cylinder and the ray is pointing away from first intersection point.
-      var y2 = p1y + t2 * dy; // Line and cylinder second intersection point.
-
-      if (y2 > height) { // Line intersects cylinder above edge top.
-        var a = dx * dx + dy * dy;
-        var c = p1x * p1x + (p1y - height) * (p1y - height) - radius * radius;
-        var k = p1x * dx + dy * (p1y - height);
-        var discr = k * k - a * c;
-
-        if (discr <= 0.0) { // Line doesn't intersect top circle or has single intersection point, that should never happen.
-          return false;
-        }
-
-        var discrSqrt = Math.sqrt(discr);
-        var t4 = (-k + discrSqrt) / a; // Line and top circle intersection point, the most distant from the start point.
-
-        if (t4 <= 0.0) { // The ray is pointing away from the top circle.
-          return false;
-        }
-      } else if (y2 < 0.0) { // Line intersects cylinder below edge bottom.
-        var a = dx * dx + dy * dy;
-        var c = p1x * p1x + p1y * p1y - radius * radius;
-        var k = p1x * dx + p1y * dy;
-        var discr = k * k - a * c;
-
-        if (discr <= 0.0) { // Line doesn't intersect bottom circle or has single intersection point, that should never happen.
-          return false;
-        }
-
-        var discrSqrt = Math.sqrt(discr);
-        var t4 = (-k + discrSqrt) / a; // Line and bottom circle intersection point, the most distant from the start point.
-
-        if (t4 <= 0.0) { // The ray is pointing away from the bottom circle.
-          return false;
-        }
-      }
-      // The ray starts inside of the shape.
-      output.fraction = 0.0;
-      output.normal = d.neg().normal();
+  for (var count = this.m_count, i = 2; i < count; ++i) {
+    edgeShape._set(vertices[i - 1], vertices[i]);
+    if (edgeShape.testPoint(xf, p)) {
+      return true;
     }
   }
+  return false;
+}
 
-  output.normal.rotT(this.m_alignRot).rot(xf.q);
-  return true;
-};
+ChainShape.prototype.rayCast = function(output, input, xf, childIndex) {
+  _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count);
 
-EdgeShape.prototype.computeAABB = function(aabb, xf, childIndex) {
-  var v1 = Transform.mulVec2(xf, this.m_vertex1);
-  var v2 = Transform.mulVec2(xf, this.m_vertex2);
+  var edgeShape = new EdgeShape(this.getVertex(childIndex), this.getVertex(childIndex + 1), this.m_edgeRadius);
+  return edgeShape.rayCast(output, input, xf, 0);
+}
+
+ChainShape.prototype.computeAABB = function(aabb, xf, childIndex) {
+  _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count);
+
+  var v1 = Transform.mulVec2(xf, this.getVertex(childIndex));
+  var v2 = Transform.mulVec2(xf, this.getVertex(childIndex + 1));
 
   aabb.combinePoints(v1, v2);
   aabb.extend(this.m_radius);
 }
 
-EdgeShape.prototype.computeMass = function(massData, density) {
+/**
+ * Chains have zero mass.
+ */
+ChainShape.prototype.computeMass = function(massData, density) {
   massData.mass = 0.0;
-  massData.center.setCombine(0.5, this.m_vertex1, 0.5, this.m_vertex2);
+  massData.center = Vec2.neo();
   massData.I = 0.0;
 }
 
-EdgeShape.prototype.computeDistanceProxy = function(proxy) {
-  proxy.m_vertices.push(this.m_vertex1);
-  proxy.m_vertices.push(this.m_vertex2);
+ChainShape.prototype.computeDistanceProxy = function(proxy, childIndex) {
+  _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count);
+  proxy.m_buffer[0] = this.getVertex(childIndex);
+  proxy.m_buffer[1] = this.getVertex(childIndex + 1);
+  proxy.m_vertices = proxy.m_buffer;
   proxy.m_count = 2;
   proxy.m_radius = this.m_radius;
 };
 
 
 /***/ }),
-/* 24 */
+/* 25 */
 /***/ (function(module, exports) {
 
 if (typeof Object.create == 'function') {
@@ -6774,7 +7075,7 @@ if (typeof Object.create == 'function') {
 
 
 /***/ }),
-/* 25 */
+/* 26 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var Class = __webpack_require__(19);
@@ -7397,7 +7698,7 @@ module.exports = Pin;
 
 
 /***/ }),
-/* 26 */
+/* 27 */
 /***/ (function(module, exports, __webpack_require__) {
 
 /*
@@ -7428,15 +7729,15 @@ var common = __webpack_require__(2);
 var options = __webpack_require__(7);
 
 var Vec2 = __webpack_require__(1);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Math = __webpack_require__(0);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
 var Fixture = __webpack_require__(30);
-var Shape = __webpack_require__(15);
+var Shape = __webpack_require__(16);
 var World = __webpack_require__(31);
 
 var staticBody = Body.STATIC = 'static';
@@ -8460,7 +8761,7 @@ Body.prototype.getLocalVector = function(worldVector) {
 
 
 /***/ }),
-/* 27 */
+/* 28 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var _DEBUG =  false ? undefined : false;
@@ -8478,295 +8779,11 @@ exports.toString = function(newline) {
 };
 
 /***/ }),
-/* 28 */
-/***/ (function(module, exports, __webpack_require__) {
-
-/*
- * Copyright (c) 2016-2018 Ali Shakiba http://shakiba.me/planck.js
- * Copyright (c) 2006-2011 Erin Catto  http://www.box2d.org
- *
- * This software is provided 'as-is', without any express or implied
- * warranty.  In no event will the authors be held liable for any damages
- * arising from the use of this software.
- * Permission is granted to anyone to use this software for any purpose,
- * including commercial applications, and to alter it and redistribute it
- * freely, subject to the following restrictions:
- * 1. The origin of this software must not be misrepresented; you must not
- * claim that you wrote the original software. If you use this software
- * in a product, an acknowledgment in the product documentation would be
- * appreciated but is not required.
- * 2. Altered source versions must be plainly marked as such, and must not be
- * misrepresented as being the original software.
- * 3. This notice may not be removed or altered from any source distribution.
- */
-
-var _DEBUG =  false ? undefined : false;
-var _ASSERT =  false ? undefined : false;
-
-module.exports = ChainShape;
-
-var common = __webpack_require__(2);
-var create = __webpack_require__(6);
-var options = __webpack_require__(7);
-var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
-var Rot = __webpack_require__(3);
-var Vec2 = __webpack_require__(1);
-var AABB = __webpack_require__(16);
-var Settings = __webpack_require__(5);
-var Shape = __webpack_require__(15);
-var EdgeShape = __webpack_require__(23);
-
-ChainShape._super = Shape;
-ChainShape.prototype = create(ChainShape._super.prototype);
-
-ChainShape.TYPE = 'chain';
-
-/**
- * A chain shape is a free form sequence of line segments. The chain has
- * two-sided collision, so you can use inside and outside collision. Therefore,
- * you may use any winding order. Connectivity information is used to create
- * smooth collisions.
- * 
- * WARNING: The chain will not collide properly if there are self-intersections.
- *
- * @param {Number} radius Radius extending around the chain.
- */
-function ChainShape(vertices, loop, radius) {
-  if (!(this instanceof ChainShape)) {
-    return new ChainShape(vertices, loop);
-  }
-
-  ChainShape._super.call(this);
-
-  this.m_type = ChainShape.TYPE;
-  this.m_radius = Settings.polygonRadius;
-  this.m_vertices = [];
-  this.m_count = 0;
-  this.m_prevVertex = null;
-  this.m_nextVertex = null;
-  this.m_hasPrevVertex = false;
-  this.m_hasNextVertex = false;
-  if (radius > 0.0) {
-    this.m_edgeRadius = radius;
-    this.m_radius += radius;
-  } else {
-    this.m_edgeRadius = 0.0;
-  }
-
-  if (vertices && vertices.length) {
-    if (loop) {
-      this._createLoop(vertices);
-    } else {
-      this._createChain(vertices);
-    }
-  }
-}
-
-// ChainShape.clear = function() {
-// this.m_vertices.length = 0;
-// this.m_count = 0;
-// }
-
-/**
- * Create a loop. This automatically adjusts connectivity.
- * 
- * @param vertices an array of vertices, these are copied
- * @param count the vertex count
- */
-ChainShape.prototype._createLoop = function(vertices) {
-  /*_ASSERT && common.assert(this.m_vertices.length == 0 && this.m_count == 0);
-  _ASSERT && common.assert(vertices.length >= 3);
-  for (var i = 1; i < vertices.length; ++i) {
-    var v1 = vertices[i - 1];
-    var v2 = vertices[i];
-    // If the code crashes here, it means your vertices are too close together.
-    _ASSERT && common.assert(Vec2.distanceSquared(v1, v2) > Settings.linearSlopSquared);
-  }*/
-
-  this.m_vertices.length = 0;
-  this.m_count = vertices.length + 1;
-  for (var i = 0; i < vertices.length; ++i) {
-    this.m_vertices[i] = vertices[i].clone();
-  }
-  this.m_vertices[vertices.length] = vertices[0].clone();
-
-  this.m_prevVertex = this.m_vertices[this.m_count - 2];
-  this.m_nextVertex = this.m_vertices[1];
-  this.m_hasPrevVertex = true;
-  this.m_hasNextVertex = true;
-  return this;
-}
-
-/**
- * Create a chain with isolated end vertices.
- * 
- * @param vertices an array of vertices, these are copied
- * @param count the vertex count
- */
-ChainShape.prototype._createChain = function(vertices) {
-  /*_ASSERT && common.assert(this.m_vertices.length == 0 && this.m_count == 0);
-  _ASSERT && common.assert(vertices.length >= 2);
-  for (var i = 1; i < vertices.length; ++i) {
-    // If the code crashes here, it means your vertices are too close together.
-    var v1 = vertices[i - 1];
-    var v2 = vertices[i];
-    _ASSERT && common.assert(Vec2.distanceSquared(v1, v2) > Settings.linearSlopSquared);
-  }*/
-
-  this.m_count = this.m_vertices.length = vertices.length;
-  for (var i = 0; i < vertices.length; ++i) {
-    this.m_vertices[i] = vertices[i].clone();
-  }
-
-  this.m_hasPrevVertex = false;
-  this.m_hasNextVertex = false;
-  this.m_prevVertex = null;
-  this.m_nextVertex = null;
-  return this;
-}
-
-/**
- * Establish connectivity to a vertex that precedes the first vertex. Don't call
- * this for loops.
- */
-ChainShape.prototype._setPrevVertex = function(prevVertex) {
-  this.m_prevVertex = prevVertex;
-  this.m_hasPrevVertex = true;
-}
-
-/**
- * Establish connectivity to a vertex that follows the last vertex. Don't call
- * this for loops.
- */
-ChainShape.prototype._setNextVertex = function(nextVertex) {
-  this.m_nextVertex = nextVertex;
-  this.m_hasNextVertex = true;
-}
-
-/**
- * @deprecated
- */
-ChainShape.prototype._clone = function() {
-  var clone = new ChainShape();
-  clone.createChain(this.m_vertices);
-  clone.m_type = this.m_type;
-  clone.m_radius = this.m_radius;
-  clone.m_prevVertex = this.m_prevVertex;
-  clone.m_nextVertex = this.m_nextVertex;
-  clone.m_hasPrevVertex = this.m_hasPrevVertex;
-  clone.m_hasNextVertex = this.m_hasNextVertex;
-  return clone;
-}
-
-ChainShape.prototype.getChildCount = function() {
-  // edge count = vertex count - 1
-  return this.m_count > 0 ? this.m_count - 1 : 0;
-}
-
-// Get a child edge.
-ChainShape.prototype.getChildEdge = function(edge, childIndex) {
-  _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count - 1);
-  edge.m_type = EdgeShape.TYPE;
-  edge.m_radius = this.m_radius;
-  edge.m_edgeRadius = this.m_edgeRadius;
-
-  edge.m_vertex1 = this.m_vertices[childIndex];
-  edge.m_vertex2 = this.m_vertices[childIndex + 1];
-
-  if (childIndex > 0) {
-    edge.m_vertex0 = this.m_vertices[childIndex - 1];
-    edge.m_hasVertex0 = true;
-  } else {
-    edge.m_vertex0 = this.m_prevVertex;
-    edge.m_hasVertex0 = this.m_hasPrevVertex;
-  }
-
-  if (childIndex < this.m_count - 2) {
-    edge.m_vertex3 = this.m_vertices[childIndex + 2];
-    edge.m_hasVertex3 = true;
-  } else {
-    edge.m_vertex3 = this.m_nextVertex;
-    edge.m_hasVertex3 = this.m_hasNextVertex;
-  }
-}
-
-ChainShape.prototype.getVertex = function(index) {
-  _ASSERT && common.assert(0 <= index && index <= this.m_count);
-  if (index < this.m_count) {
-    return this.m_vertices[index];
-  } else {
-    return this.m_vertices[0];
-  }
-}
-
-/**
- * Test a point for containment in this shape.
- * 
- * @param {Transform} xf The shape world transform.
- * @param {Vec2} p A point in world coordinates.
- * @return {boolean} True if the point is included into the shape, false otherwise.
- */
-ChainShape.prototype.testPoint = function(xf, p) {
-  if (this.m_edgeRadius <= 0.0 || this.m_count < 2) {
-    return false;
-  }
-  var vertices = this.m_vertices;
-  var edgeShape = new EdgeShape(vertices[0], vertices[1], this.m_edgeRadius);
-  if (edgeShape.testPoint(xf, p)) {
-    return true;
-  }
-  for (var count = this.m_count, i = 2; i < count; ++i) {
-    edgeShape._set(vertices[i - 1], vertices[i]);
-    if (edgeShape.testPoint(xf, p)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-ChainShape.prototype.rayCast = function(output, input, xf, childIndex) {
-  _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count);
-
-  var edgeShape = new EdgeShape(this.getVertex(childIndex), this.getVertex(childIndex + 1), this.m_edgeRadius);
-  return edgeShape.rayCast(output, input, xf, 0);
-}
-
-ChainShape.prototype.computeAABB = function(aabb, xf, childIndex) {
-  _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count);
-
-  var v1 = Transform.mulVec2(xf, this.getVertex(childIndex));
-  var v2 = Transform.mulVec2(xf, this.getVertex(childIndex + 1));
-
-  aabb.combinePoints(v1, v2);
-  aabb.extend(this.m_radius);
-}
-
-/**
- * Chains have zero mass.
- */
-ChainShape.prototype.computeMass = function(massData, density) {
-  massData.mass = 0.0;
-  massData.center = Vec2.neo();
-  massData.I = 0.0;
-}
-
-ChainShape.prototype.computeDistanceProxy = function(proxy, childIndex) {
-  _ASSERT && common.assert(0 <= childIndex && childIndex < this.m_count);
-  proxy.m_buffer[0] = this.getVertex(childIndex);
-  proxy.m_buffer[1] = this.getVertex(childIndex + 1);
-  proxy.m_vertices = proxy.m_buffer;
-  proxy.m_count = 2;
-  proxy.m_radius = this.m_radius;
-};
-
-
-/***/ }),
 /* 29 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var Class = __webpack_require__(19);
-__webpack_require__(25);
+__webpack_require__(26);
 var stats = __webpack_require__(36);
 
 Class.prototype._textures = null;
@@ -8937,7 +8954,7 @@ var options = __webpack_require__(7);
 var Math = __webpack_require__(0);
 var Vec2 = __webpack_require__(1);
 
-var AABB = __webpack_require__(16);
+var AABB = __webpack_require__(15);
 
 /**
  * @typedef {Object} FixtureDef
@@ -9446,10 +9463,16 @@ module.exports = World;
 var options = __webpack_require__(7);
 var common = __webpack_require__(2);
 var Vec2 = __webpack_require__(1);
+var Transform = __webpack_require__(3);
 var BroadPhase = __webpack_require__(40);
 var Solver = __webpack_require__(42);
-var Body = __webpack_require__(26);
+var Body = __webpack_require__(27);
 var Contact = __webpack_require__(17);
+var AABB = __webpack_require__(15);
+var CircleShape = __webpack_require__(21);
+
+var _aabb, _transform, _circle;
+var _reportFixtureAABBCallback, _reportFixtureCallback, _hits;
 
 /**
  * @typedef {Object} WorldDef
@@ -9682,26 +9705,19 @@ World.prototype.clearForces = function() {
 }
 
 /**
- * @function World~rayCastCallback
- *
- * @param fixture
- * @param proxy
- */
-
-/**
  * Query the world for all fixtures that potentially overlap the provided AABB.
  *
- * @param {World~queryCallback} queryCallback Called for each fixture
- *          found in the query AABB. It may return `false` to terminate the
- *          query.
- *
  * @param aabb The query box.
+ *
+ * @param {function} queryCallback Called for each fixture
+ *          found in the query. It may return `false` to terminate the query.
+ *
  */
 World.prototype.queryAABB = function(aabb, queryCallback) {
   _ASSERT && common.assert(typeof queryCallback === 'function');
-  World._reportFixtureCallback = queryCallback;
+  _reportFixtureAABBCallback = queryCallback;
   this.m_broadPhase.query(aabb, this._queryAABBCallback);
-  World._reportFixtureCallback = null;
+  _reportFixtureAABBCallback = null;
 };
 
 /**
@@ -9709,7 +9725,47 @@ World.prototype.queryAABB = function(aabb, queryCallback) {
  * Used internally.
  */
 World.prototype._queryAABBCallback = function(proxyId, proxy) {
-  return World._reportFixtureCallback(proxy.fixture, proxy);
+  return _reportFixtureAABBCallback(proxy.fixture, proxy);
+};
+
+/**
+ * Query the world for all fixtures that potentially overlap the provided circle.
+ *
+ * @param {planck.Vec2} center The circle center.
+ * @param {float} radius The circle radius.
+ * @param {function} queryCallback Called for each fixture
+ *          found in the query. It may return `false` to terminate the query.
+ *
+ */
+World.prototype.queryCircle = function(center, radius, queryCallback) {
+  _circle = _circle || new CircleShape();
+  _circle.setRadius(radius);
+
+  _transform = _transform || new Transform();
+  _transform.p.set(center);
+
+  _aabb = _aabb || new AABB();
+  _circle.computeAABB(_aabb, _transform);
+
+  _hits = {};
+  _reportFixtureCallback = queryCallback;
+  this.queryAABB(_aabb, this._queryCircleCallback);
+  _hits = _reportFixtureCallback = null;
+};
+
+/**
+ * Called for each fixture found in the circle query.
+ * Used internally.
+ */
+World.prototype._queryCircleCallback = function(fixture, proxy) {
+  var id = fixture.m_proxies[0].proxyId;
+
+  if (_hits[id] || !_circle.testOverlap(_transform, 0, fixture.m_shape, fixture.m_body.getTransform(), proxy.childIndex)) {
+    return true;
+  }
+
+  _hits[id] = true;
+  return _reportFixtureCallback(fixture); // Dynamic tree must not be modified here.
 };
 
 /**
@@ -9737,19 +9793,15 @@ World.prototype._queryAABBCallback = function(proxyId, proxy) {
  * controls whether you get the closest point, any point, or n-points. The
  * ray-cast ignores shapes that contain the starting point.
  *
- * @param {World~RayCastCallback} reportFixtureCallback A user implemented
- *          callback function.
+ * @param {World~RayCastCallback} callback A user implemented callback function.
  * @param point1 The ray starting point
  * @param point2 The ray ending point
  */
-World.prototype.rayCast = function(point1, point2, reportFixtureCallback) {
-  if (this._raycastCallback == World.prototype._raycastCallback) {
-    this._raycastCallback = this._raycastCallback.bind(this);
-  }
-  this._hits = {};
-  this._reportFixtureCallback = reportFixtureCallback;
+World.prototype.rayCast = function(point1, point2, callback) {
+  _hits = {};
+  _reportFixtureCallback = callback;
   this.m_broadPhase.rayCast(null, this._raycastCallback, point1, point2, 1.0);
-  this._hits = this._reportFixtureCallback = reportFixtureCallback = null;
+  _hits = _reportFixtureCallback = null;
 };
 
 /**
@@ -9759,17 +9811,17 @@ World.prototype.rayCast = function(point1, point2, reportFixtureCallback) {
 World.prototype._raycastCallback = function(input, proxyId, proxy) {
   var fixture = proxy.fixture;
   var id = fixture.getProxyId(0);
-  if (this._hits[id]) {
+  if (_hits[id]) {
     return input.maxFraction;
   }
   var index = proxy.childIndex;
   var output = {}; // TODO GC
   var hit = fixture.rayCast(output, input, index);
   if (hit) {
-    this._hits[id] = true;
+    _hits[id] = true;
     var fraction = output.fraction;
     var point = input.p1.mul(1.0 - fraction).add(input.p2.mul(fraction));
-    return this._reportFixtureCallback(fixture, point, output.normal, fraction);
+    return _reportFixtureCallback(fixture, point, output.normal, fraction);
   }
   return input.maxFraction;
 };
@@ -10557,7 +10609,7 @@ var common = __webpack_require__(2);
 var Pool = __webpack_require__(41);
 var Vec2 = __webpack_require__(1);
 var Math = __webpack_require__(0);
-var AABB = __webpack_require__(16);
+var AABB = __webpack_require__(15);
 
 module.exports = DynamicTree;
 
@@ -11485,20 +11537,20 @@ var Settings = __webpack_require__(5);
 var common = __webpack_require__(2);
 var Timer = __webpack_require__(43);
 
-var stats = __webpack_require__(27);
+var stats = __webpack_require__(28);
 
 var Math = __webpack_require__(0);
 var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
-var Distance = __webpack_require__(21);
+var Distance = __webpack_require__(23);
 var DistanceInput = Distance.Input;
 var DistanceOutput = Distance.Output;
 var DistanceProxy = Distance.Proxy;
@@ -11973,9 +12025,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -12604,9 +12656,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -13527,22 +13579,22 @@ exports.Vec2 = __webpack_require__(1);
 exports.Vec3 = __webpack_require__(8);
 exports.Mat22 = __webpack_require__(9);
 exports.Mat33 = __webpack_require__(11);
-exports.Transform = __webpack_require__(4);
-exports.Rot = __webpack_require__(3);
+exports.Transform = __webpack_require__(3);
+exports.Rot = __webpack_require__(4);
 
-exports.AABB = __webpack_require__(16);
+exports.AABB = __webpack_require__(15);
 
-exports.Shape = __webpack_require__(15);
+exports.Shape = __webpack_require__(16);
 exports.Fixture = __webpack_require__(30);
-exports.Body = __webpack_require__(26);
+exports.Body = __webpack_require__(27);
 exports.Contact = __webpack_require__(17);
 exports.Joint = __webpack_require__(14);
 exports.World = __webpack_require__(31);
 
-exports.Circle = __webpack_require__(22);
-exports.Edge = __webpack_require__(23);
+exports.Circle = __webpack_require__(21);
+exports.Edge = __webpack_require__(22);
 exports.Polygon = __webpack_require__(20);
-exports.Chain = __webpack_require__(28);
+exports.Chain = __webpack_require__(24);
 exports.Box = __webpack_require__(44);
 
 __webpack_require__(45);
@@ -13564,9 +13616,9 @@ exports.WeldJoint = __webpack_require__(57);
 exports.WheelJoint = __webpack_require__(58);
 
 exports.internal.Sweep= __webpack_require__(10);
-exports.internal.stats = __webpack_require__(27);
+exports.internal.stats = __webpack_require__(28);
 exports.internal.Manifold = __webpack_require__(18);
-exports.internal.Distance = __webpack_require__(21);
+exports.internal.Distance = __webpack_require__(23);
 exports.internal.TimeOfImpact = __webpack_require__(33);
 exports.internal.DynamicTree = __webpack_require__(32);
 exports.internal.Settings = __webpack_require__(5);
@@ -13601,7 +13653,7 @@ var _ASSERT =  false ? undefined : false;
 var Settings = __webpack_require__(5);
 var common = __webpack_require__(2);
 var Math = __webpack_require__(0);
-var AABB = __webpack_require__(16);
+var AABB = __webpack_require__(15);
 var DynamicTree = __webpack_require__(32);
 
 module.exports = BroadPhase;
@@ -13941,7 +13993,7 @@ var common = __webpack_require__(2);
 var Vec2 = __webpack_require__(1);
 var Math = __webpack_require__(0);
 
-var Body = __webpack_require__(26);
+var Body = __webpack_require__(27);
 var Contact = __webpack_require__(17);
 var Joint = __webpack_require__(14);
 
@@ -13949,7 +14001,7 @@ var TimeOfImpact = __webpack_require__(33);
 var TOIInput = TimeOfImpact.Input;
 var TOIOutput = TimeOfImpact.Output;
 
-var Distance = __webpack_require__(21);
+var Distance = __webpack_require__(23);
 var DistanceInput = Distance.Input;
 var DistanceOutput = Distance.Output;
 var DistanceProxy = Distance.Proxy;
@@ -14895,13 +14947,15 @@ var _ASSERT =  false ? undefined : false;
 var common = __webpack_require__(2);
 var create = __webpack_require__(6);
 var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Vec2 = __webpack_require__(1);
 var Settings = __webpack_require__(5);
-var Shape = __webpack_require__(15);
+var Shape = __webpack_require__(16);
 var Contact = __webpack_require__(17);
 var Manifold = __webpack_require__(18);
-var CircleShape = __webpack_require__(22);
+var CircleShape = __webpack_require__(21);
+
+var pA = new Vec2(), pB = new Vec2();
 
 Contact.addType(CircleShape.TYPE, CircleShape.TYPE, CircleCircleContact);
 
@@ -14914,8 +14968,8 @@ function CircleCircleContact(manifold, xfA, fixtureA, indexA, xfB, fixtureB, ind
 function CollideCircles(manifold, circleA, xfA, circleB, xfB) {
   manifold.pointCount = 0;
 
-  var pA = Transform.mulVec2(xfA, circleA.m_p);
-  var pB = Transform.mulVec2(xfB, circleB.m_p);
+  pA = Transform.mulVec2(xfA, circleA.m_p, pA);
+  pB = Transform.mulVec2(xfB, circleB.m_p, pB);
 
   var distSqr = Vec2.distanceSquared(pB, pA);
   var rA = circleA.m_radius;
@@ -14936,9 +14990,21 @@ function CollideCircles(manifold, circleA, xfA, circleB, xfB) {
   manifold.points[0].id.cf.typeA = Manifold.e_vertex;
   manifold.points[0].id.cf.indexB = 0;
   manifold.points[0].id.cf.typeB = Manifold.e_vertex;
-}
+};
 
 exports.CollideCircles = CollideCircles;
+
+Contact.circlesOverlap = function(circleA, xfA, circleB, xfB) {
+  pA = Transform.mulVec2(xfA, circleA.m_p, pA);
+  pB = Transform.mulVec2(xfB, circleB.m_p, pB);
+
+  var distSqr = Vec2.distanceSquared(pB, pA);
+  var rA = circleA.m_radius;
+  var rB = circleB.m_radius;
+  var radius = rA + rB;
+  return radius * radius > distSqr;
+};
+
 
 /***/ }),
 /* 46 */
@@ -14969,16 +15035,18 @@ var _ASSERT =  false ? undefined : false;
 var common = __webpack_require__(2);
 var create = __webpack_require__(6);
 var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Vec2 = __webpack_require__(1);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Settings = __webpack_require__(5);
-var Shape = __webpack_require__(15);
+var Shape = __webpack_require__(16);
 var Contact = __webpack_require__(17);
 var Manifold = __webpack_require__(18);
-var EdgeShape = __webpack_require__(23);
-var ChainShape = __webpack_require__(28);
-var CircleShape = __webpack_require__(22);
+var EdgeShape = __webpack_require__(22);
+var ChainShape = __webpack_require__(24);
+var CircleShape = __webpack_require__(21);
+
+var Q = new Vec2(), e = new Vec2(), d = new Vec2(), edge;
 
 Contact.addType(EdgeShape.TYPE, CircleShape.TYPE, EdgeCircleContact);
 Contact.addType(ChainShape.TYPE, CircleShape.TYPE, ChainCircleContact);
@@ -14998,7 +15066,7 @@ function ChainCircleContact(manifold, xfA, fixtureA, indexA, xfB, fixtureB, inde
   _ASSERT && common.assert(fixtureB.getType() == CircleShape.TYPE);
 
   var chain = fixtureA.getShape();
-  var edge = new EdgeShape();
+  edge = edge || new EdgeShape();
   chain.getChildEdge(edge, indexA);
 
   var shapeA = edge;
@@ -15013,22 +15081,21 @@ function CollideEdgeCircle(manifold, edgeA, xfA, circleB, xfB) {
   manifold.pointCount = 0;
 
   // Compute circle in frame of edge
-  var Q = Transform.mulTVec2(xfA, Transform.mulVec2(xfB, circleB.m_p));
+  Q = Transform.mulTVec2(xfA, Transform.mulVec2(xfB, circleB.m_p, Q), Q);
 
   var A = edgeA.m_vertex1;
   var B = edgeA.m_vertex2;
-  var e = Vec2.sub(B, A);
+  e = e.set(B).sub(A);
 
   // Barycentric coordinates
-  var u = Vec2.dot(e, Vec2.sub(B, Q));
-  var v = Vec2.dot(e, Vec2.sub(Q, A));
+  var v = Vec2.dot(e, d.set(Q).sub(A));
 
   var radius = edgeA.m_radius + circleB.m_radius;
 
   // Region A
   if (v <= 0.0) {
-    var P = Vec2.clone(A);
-    var d = Vec2.sub(Q, P);
+    var P = A;
+    d = d.set(Q).sub(P);
     var dd = Vec2.dot(d, d);
     if (dd > radius * radius) {
       return;
@@ -15038,8 +15105,8 @@ function CollideEdgeCircle(manifold, edgeA, xfA, circleB, xfB) {
     if (edgeA.m_hasVertex0) {
       var A1 = edgeA.m_vertex0;
       var B1 = A;
-      var e1 = Vec2.sub(B1, A1);
-      var u1 = Vec2.dot(e1, Vec2.sub(B1, Q));
+      var e1 = e.set(B1).sub(A1);
+      var u1 = Vec2.dot(e1, d.set(B1).sub(Q));
 
       // Is the circle in Region AB of the previous edge?
       if (u1 > 0.0) {
@@ -15061,10 +15128,13 @@ function CollideEdgeCircle(manifold, edgeA, xfA, circleB, xfB) {
     return;
   }
 
+  // Barycentric coordinates
+  var u = Vec2.dot(e, Vec2.sub(B, Q));
+
   // Region B
   if (u <= 0.0) {
-    var P = Vec2.clone(B);
-    var d = Vec2.sub(Q, P);
+    var P = B;
+    d = d.set(Q).sub(P);
     var dd = Vec2.dot(d, d);
     if (dd > radius * radius) {
       return;
@@ -15074,8 +15144,8 @@ function CollideEdgeCircle(manifold, edgeA, xfA, circleB, xfB) {
     if (edgeA.m_hasVertex3) {
       var B2 = edgeA.m_vertex3;
       var A2 = B;
-      var e2 = Vec2.sub(B2, A2);
-      var v2 = Vec2.dot(e2, Vec2.sub(Q, A2));
+      var e2 = e.set(B2).sub(A2);
+      var v2 = Vec2.dot(e2, d.set(Q).sub(A2));
 
       // Is the circle in Region AB of the next edge?
       if (v2 > 0.0) {
@@ -15100,21 +15170,21 @@ function CollideEdgeCircle(manifold, edgeA, xfA, circleB, xfB) {
   // Region AB
   var den = Vec2.dot(e, e);
   _ASSERT && common.assert(den > 0.0);
-  var P = Vec2.combine(u / den, A, v / den, B);
-  var d = Vec2.sub(Q, P);
+  var P = d.setCombine(u / den, A, v / den, B);
+  d = d.set(-P.x, -P.y).add(Q); // reusing d vector, <=> Vec2.sub(Q, P)
   var dd = Vec2.dot(d, d);
   if (dd > radius * radius) {
     return;
   }
 
-  var n = Vec2.neo(-e.y, e.x);
-  if (Vec2.dot(n, Vec2.sub(Q, A)) < 0.0) {
+  var n = e.set(-e.y, e.x);
+  if (Vec2.dot(n, d.set(Q).sub(A)) < 0.0) {
     n.set(-n.x, -n.y);
   }
   n.normalize();
 
   manifold.type = Manifold.e_faceA;
-  manifold.localNormal = n;
+  manifold.localNormal.set(n);
   manifold.localPoint.set(A);
   manifold.pointCount = 1;
   manifold.points[0].localPoint.set(circleB.m_p);
@@ -15124,7 +15194,88 @@ function CollideEdgeCircle(manifold, edgeA, xfA, circleB, xfB) {
   manifold.points[0].id.cf.typeA = Manifold.e_face;
   manifold.points[0].id.cf.indexB = 0;
   manifold.points[0].id.cf.typeB = Manifold.e_vertex;
-}
+};
+
+Contact.chainCircleOverlap = function(chainA, indexA, xfA, circleB, xfB) {
+  edge = edge || new EdgeShape();
+  chainA.getChildEdge(edge, indexA);
+  return Contact.edgeCircleOverlap(edge, xfA, circleB, xfB);
+};
+
+Contact.edgeCircleOverlap = function(edgeA, xfA, circleB, xfB) {
+  // Compute circle in frame of edge
+  Q = Transform.mulTVec2(xfA, Transform.mulVec2(xfB, circleB.m_p, Q), Q);
+
+  var A = edgeA.m_vertex1;
+  var B = edgeA.m_vertex2;
+  e = e.set(B).sub(A);
+
+  // Barycentric coordinates
+  var v = Vec2.dot(e, d.set(Q).sub(A));
+
+  var radius = edgeA.m_radius + circleB.m_radius;
+
+  // Region A
+  if (v <= 0.0) {
+    var P = A;
+    d = d.set(Q).sub(P);
+    var dd = Vec2.dot(d, d);
+    if (dd >= radius * radius) {
+      return false;
+    }
+
+    // Is there an edge connected to A?
+    if (edgeA.m_hasVertex0) {
+      var A1 = edgeA.m_vertex0;
+      var B1 = A;
+      var e1 = e.set(B1).sub(A1);
+      var u1 = Vec2.dot(e1, d.set(B1).sub(Q));
+
+      // Is the circle in Region AB of the previous edge?
+      if (u1 > 0.0) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  // Barycentric coordinates
+  var u = Vec2.dot(e, d.set(B).sub(Q));
+
+  // Region B
+  if (u <= 0.0) {
+    var P = B;
+    d = d.set(Q).sub(P);
+    var dd = Vec2.dot(d, d);
+    if (dd >= radius * radius) {
+      return false;
+    }
+
+    // Is there an edge connected to B?
+    if (edgeA.m_hasVertex3) {
+      var B2 = edgeA.m_vertex3;
+      var A2 = B;
+      var e2 = e.set(B2).sub(A2);
+      var v2 = Vec2.dot(e2, d.set(Q).sub(A2));
+
+      // Is the circle in Region AB of the next edge?
+      if (v2 > 0.0) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  // Region AB
+  var den = Vec2.dot(e, e);
+  var P = den > 0.0 ? e.setCombine(u / den, A, v / den, B) : A;
+  d = d.set(Q).sub(P);
+  var dd = Vec2.dot(d, d);
+  return dd < radius * radius;
+};
+
 
 
 /***/ }),
@@ -15155,14 +15306,14 @@ var _ASSERT =  false ? undefined : false;
 
 var common = __webpack_require__(2);
 var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
-var Rot = __webpack_require__(3);
+var Transform = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Vec2 = __webpack_require__(1);
-var AABB = __webpack_require__(16);
+var AABB = __webpack_require__(15);
 var Settings = __webpack_require__(5);
 var Manifold = __webpack_require__(18);
 var Contact = __webpack_require__(17);
-var Shape = __webpack_require__(15);
+var Shape = __webpack_require__(16);
 var PolygonShape = __webpack_require__(20);
 
 module.exports = CollidePolygons;
@@ -15423,16 +15574,18 @@ var _ASSERT =  false ? undefined : false;
 
 var common = __webpack_require__(2);
 var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
-var Rot = __webpack_require__(3);
+var Transform = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Vec2 = __webpack_require__(1);
-var AABB = __webpack_require__(16);
+var AABB = __webpack_require__(15);
 var Settings = __webpack_require__(5);
 var Manifold = __webpack_require__(18);
 var Contact = __webpack_require__(17);
-var Shape = __webpack_require__(15);
-var CircleShape = __webpack_require__(22);
+var Shape = __webpack_require__(16);
+var CircleShape = __webpack_require__(21);
 var PolygonShape = __webpack_require__(20);
+
+var cLocal = new Vec2(), d = new Vec2(), r = new Vec2();
 
 Contact.addType(PolygonShape.TYPE, CircleShape.TYPE, PolygonCircleContact);
 
@@ -15447,8 +15600,8 @@ function CollidePolygonCircle(manifold, polygonA, xfA, circleB, xfB) {
   manifold.pointCount = 0;
 
   // Compute circle position in the frame of the polygon.
-  var c = Transform.mulVec2(xfB, circleB.m_p);
-  var cLocal = Transform.mulTVec2(xfA, c);
+  cLocal = Transform.mulVec2(xfB, circleB.m_p, cLocal);
+  cLocal = Transform.mulTVec2(xfA, cLocal, cLocal);
 
   // Find the min separating edge.
   var normalIndex = 0;
@@ -15459,7 +15612,7 @@ function CollidePolygonCircle(manifold, polygonA, xfA, circleB, xfB) {
   var normals = polygonA.m_normals;
 
   for (var i = 0; i < vertexCount; ++i) {
-    var s = Vec2.dot(normals[i], Vec2.sub(cLocal, vertices[i]));
+    var s = Vec2.dot(normals[i], d.set(cLocal).sub(vertices[i]));
 
     if (s > radius) {
       // Early out.
@@ -15495,9 +15648,7 @@ function CollidePolygonCircle(manifold, polygonA, xfA, circleB, xfB) {
   }
 
   // Compute barycentric coordinates
-  var u1 = Vec2.dot(Vec2.sub(cLocal, v1), Vec2.sub(v2, v1));
-  var u2 = Vec2.dot(Vec2.sub(cLocal, v2), Vec2.sub(v1, v2));
-  if (u1 <= 0.0) {
+  if (Vec2.dot(d.set(cLocal).sub(v1), r.set(v2).sub(v1)) <= 0.0) {
     if (Vec2.distanceSquared(cLocal, v1) > radius * radius) {
       return;
     }
@@ -15514,7 +15665,7 @@ function CollidePolygonCircle(manifold, polygonA, xfA, circleB, xfB) {
     manifold.points[0].id.cf.typeA = Manifold.e_vertex;
     manifold.points[0].id.cf.indexB = 0;
     manifold.points[0].id.cf.typeB = Manifold.e_vertex;
-  } else if (u2 <= 0.0) {
+  } else if (Vec2.dot(d.set(cLocal).sub(v2), r.set(v1).sub(v2)) <= 0.0) {
     if (Vec2.distanceSquared(cLocal, v2) > radius * radius) {
       return;
     }
@@ -15532,7 +15683,7 @@ function CollidePolygonCircle(manifold, polygonA, xfA, circleB, xfB) {
     manifold.points[0].id.cf.indexB = 0;
     manifold.points[0].id.cf.typeB = Manifold.e_vertex;
   } else {
-    var faceCenter = Vec2.mid(v1, v2);
+    var faceCenter = Vec2.mid(v1, v2, r);
     var separation = Vec2.dot(cLocal, normals[vertIndex1])
         - Vec2.dot(faceCenter, normals[vertIndex1]);
     if (separation > radius) {
@@ -15551,7 +15702,54 @@ function CollidePolygonCircle(manifold, polygonA, xfA, circleB, xfB) {
     manifold.points[0].id.cf.indexB = 0;
     manifold.points[0].id.cf.typeB = Manifold.e_vertex;
   }
-}
+};
+
+Contact.polygonCircleOverlap = function(polygonA, xfA, circleB, xfB) {
+  // Compute circle position in the frame of the polygon.
+  cLocal = Transform.mulVec2(xfB, circleB.m_p, cLocal);
+  cLocal = Transform.mulTVec2(xfA, cLocal, cLocal);
+
+  // Find the min separating edge.
+  var normalIndex = 0;
+  var separation = -Infinity;
+  var radius = polygonA.m_radius + circleB.m_radius;
+  var vertexCount = polygonA.m_count;
+  var vertices = polygonA.m_vertices;
+  var normals = polygonA.m_normals;
+
+  for (var i = 0; i < vertexCount; ++i) {
+    var s = Vec2.dot(normals[i], d.set(cLocal).sub(vertices[i]));
+
+    if (s > radius) {
+      // Early out.
+      return;
+    }
+
+    if (s > separation) {
+      separation = s;
+      normalIndex = i;
+    }
+  }
+
+  // If the center is inside the polygon ...
+  if (separation < Math.EPSILON) {
+    return true;
+  }
+
+  // Vertices that subtend the incident face.
+  var vertIndex1 = normalIndex;
+  var vertIndex2 = vertIndex1 + 1 < vertexCount ? vertIndex1 + 1 : 0;
+  var v1 = vertices[vertIndex1];
+  var v2 = vertices[vertIndex2];
+
+  if        (Vec2.dot(d.set(cLocal).sub(v1), r.set(v2).sub(v1)) <= 0.0) { return Vec2.distanceSquared(cLocal, v1) < radius * radius;
+  } else if (Vec2.dot(d.set(cLocal).sub(v2), r.set(v1).sub(v2)) <= 0.0) { return Vec2.distanceSquared(cLocal, v2) < radius * radius;
+  } else {
+    var faceCenter = Vec2.mid(v1, v2, r);
+    var separation = Vec2.dot(cLocal, normals[vertIndex1]) - Vec2.dot(faceCenter, normals[vertIndex1]);
+    return separation < radius;
+  }
+};
 
 
 /***/ }),
@@ -15583,15 +15781,15 @@ var _ASSERT =  false ? undefined : false;
 var common = __webpack_require__(2);
 var create = __webpack_require__(6);
 var Math = __webpack_require__(0);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Vec2 = __webpack_require__(1);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Settings = __webpack_require__(5);
-var Shape = __webpack_require__(15);
+var Shape = __webpack_require__(16);
 var Contact = __webpack_require__(17);
 var Manifold = __webpack_require__(18);
-var EdgeShape = __webpack_require__(23);
-var ChainShape = __webpack_require__(28);
+var EdgeShape = __webpack_require__(22);
+var ChainShape = __webpack_require__(24);
 var PolygonShape = __webpack_require__(20);
 
 Contact.addType(EdgeShape.TYPE, PolygonShape.TYPE, EdgePolygonContact);
@@ -16073,9 +16271,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -16430,9 +16628,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -16749,9 +16947,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -17233,9 +17431,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -17602,9 +17800,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -17910,9 +18108,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -18295,9 +18493,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -18629,9 +18827,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -19066,9 +19264,9 @@ var Vec2 = __webpack_require__(1);
 var Vec3 = __webpack_require__(8);
 var Mat22 = __webpack_require__(9);
 var Mat33 = __webpack_require__(11);
-var Rot = __webpack_require__(3);
+var Rot = __webpack_require__(4);
 var Sweep = __webpack_require__(10);
-var Transform = __webpack_require__(4);
+var Transform = __webpack_require__(3);
 var Velocity = __webpack_require__(12);
 var Position = __webpack_require__(13);
 
@@ -19689,7 +19887,7 @@ module.exports = Texture;
 /* 60 */
 /***/ (function(module, exports, __webpack_require__) {
 
-var create = __webpack_require__(24);
+var create = __webpack_require__(25);
 var native = Math;
 
 module.exports = create(Math);
@@ -20628,7 +20826,7 @@ __webpack_require__(78);
 module.exports.Mouse = __webpack_require__(80);
 module.exports.Math = __webpack_require__(60);
 module.exports._extend = __webpack_require__(37);
-module.exports._create = __webpack_require__(24);
+module.exports._create = __webpack_require__(25);
 
 __webpack_require__(81);
 
@@ -20642,7 +20840,7 @@ module.exports.Texture = __webpack_require__(59);
 __webpack_require__(66);
 __webpack_require__(68);
 __webpack_require__(69);
-__webpack_require__(25);
+__webpack_require__(26);
 
 __webpack_require__(29);
 __webpack_require__(71);
@@ -20691,7 +20889,7 @@ var Class = __webpack_require__(19);
 var Texture = __webpack_require__(59);
 
 var extend = __webpack_require__(37);
-var create = __webpack_require__(24);
+var create = __webpack_require__(25);
 var is = __webpack_require__(38);
 
 var string = __webpack_require__(67);
@@ -21445,11 +21643,11 @@ module.exports = function(prototype, callback) {
 /***/ (function(module, exports, __webpack_require__) {
 
 var Class = __webpack_require__(19);
-__webpack_require__(25);
+__webpack_require__(26);
 __webpack_require__(29);
 
 var stats = __webpack_require__(36);
-var create = __webpack_require__(24);
+var create = __webpack_require__(25);
 var extend = __webpack_require__(37);
 
 Root._super = Class;
@@ -21637,11 +21835,11 @@ Class.canvas = function(type, attributes, callback) {
 /***/ (function(module, exports, __webpack_require__) {
 
 var Class = __webpack_require__(19);
-__webpack_require__(25);
+__webpack_require__(26);
 __webpack_require__(29);
 
 var repeat = __webpack_require__(74);
-var create = __webpack_require__(24);
+var create = __webpack_require__(25);
 
 module.exports = Image;
 
@@ -21794,10 +21992,10 @@ module.exports = function(img, owidth, oheight, stretch, inner, insert) {
 /***/ (function(module, exports, __webpack_require__) {
 
 var Class = __webpack_require__(19);
-__webpack_require__(25);
+__webpack_require__(26);
 __webpack_require__(29);
 
-var create = __webpack_require__(24);
+var create = __webpack_require__(25);
 var math = __webpack_require__(60);
 
 Class.anim = function(frames, fps) {
@@ -21935,10 +22133,10 @@ Anim.prototype.stop = function(frame) {
 /***/ (function(module, exports, __webpack_require__) {
 
 var Class = __webpack_require__(19);
-__webpack_require__(25);
+__webpack_require__(26);
 __webpack_require__(29);
 
-var create = __webpack_require__(24);
+var create = __webpack_require__(25);
 var is = __webpack_require__(38);
 
 Class.string = function(frames) {
@@ -22022,10 +22220,10 @@ Str.prototype.value = function(value) {
 /***/ (function(module, exports, __webpack_require__) {
 
 var Class = __webpack_require__(19);
-__webpack_require__(25);
+__webpack_require__(26);
 __webpack_require__(29);
 
-var create = __webpack_require__(24);
+var create = __webpack_require__(25);
 
 Class.row = function(align) {
   return Class.create().row(align).label('Row');
@@ -22172,7 +22370,7 @@ Class.prototype.spacing = function(space) {
 
 var Easing = __webpack_require__(79);
 var Class = __webpack_require__(19);
-var Pin = __webpack_require__(25);
+var Pin = __webpack_require__(26);
 
 Class.prototype.tween = function(duration, delay, append) {
   if (typeof duration !== 'number') {
