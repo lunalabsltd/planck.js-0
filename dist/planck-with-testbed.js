@@ -8733,8 +8733,8 @@ Body.prototype.destroyFixture = function(fixture) {
 /**
  * Get the corresponding world point of a local point.
  */
-Body.prototype.getWorldPoint = function(localPoint) {
-  return Transform.mulVec2(this.m_xf, localPoint);
+Body.prototype.getWorldPoint = function(localPoint, res) {
+  return Transform.mulVec2(this.m_xf, localPoint, res);
 };
 
 /**
@@ -12154,14 +12154,28 @@ function RevoluteJoint(def, bodyA, bodyB, anchor) {
  */
 RevoluteJoint.prototype.getLocalAnchorA = function() {
   return this.m_localAnchorA;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyA's origin.
+ */
+RevoluteJoint.prototype.setLocalAnchorA = function(anchor) {
+  return this.m_localAnchorA = anchor;
+};
 
 /**
  * The local anchor point relative to bodyB's origin.
  */
 RevoluteJoint.prototype.getLocalAnchorB = function() {
   return this.m_localAnchorB;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyB's origin.
+ */
+RevoluteJoint.prototype.setLocalAnchorB = function(anchor) {
+  return this.m_localAnchorB = anchor;
+};
 
 /**
  * Get the reference angle.
@@ -15603,7 +15617,7 @@ function CollidePolygonCircle(manifold, polygonA, xfA, circleB, xfB) {
   cLocal = Transform.mulVec2(xfB, circleB.m_p, cLocal);
   cLocal = Transform.mulTVec2(xfA, cLocal, cLocal);
 
-  // Find the min separating edge.
+  // Find the separating edge.
   var normalIndex = 0;
   var separation = -Infinity;
   var radius = polygonA.m_radius + circleB.m_radius;
@@ -15709,7 +15723,7 @@ Contact.polygonCircleOverlap = function(polygonA, xfA, circleB, xfB) {
   cLocal = Transform.mulVec2(xfB, circleB.m_p, cLocal);
   cLocal = Transform.mulTVec2(xfA, cLocal, cLocal);
 
-  // Find the min separating edge.
+  // Find the separating edge.
   var normalIndex = 0;
   var separation = -Infinity;
   var radius = polygonA.m_radius + circleB.m_radius;
@@ -16382,14 +16396,28 @@ function DistanceJoint(def, bodyA, bodyB, anchorA, anchorB) {
  */
 DistanceJoint.prototype.getLocalAnchorA = function() {
   return this.m_localAnchorA;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyA's origin.
+ */
+DistanceJoint.prototype.setLocalAnchorA = function(anchor) {
+  return this.m_localAnchorA = anchor;
+};
 
 /**
  * The local anchor point relative to bodyB's origin.
  */
 DistanceJoint.prototype.getLocalAnchorB = function() {
   return this.m_localAnchorB;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyB's origin.
+ */
+DistanceJoint.prototype.setLocalAnchorB = function(anchor) {
+  return this.m_localAnchorB = anchor;
+};
 
 /**
  * Set/get the natural length. Manipulating the length can lead to non-physical
@@ -18592,14 +18620,28 @@ function RopeJoint(def, bodyA, bodyB, anchor) {
  */
 RopeJoint.prototype.getLocalAnchorA = function() {
   return this.m_localAnchorA;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyA's origin.
+ */
+RopeJoint.prototype.setLocalAnchorA = function(anchor) {
+  return this.m_localAnchorA = anchor;
+};
 
 /**
  * The local anchor point relative to bodyB's origin.
  */
 RopeJoint.prototype.getLocalAnchorB = function() {
   return this.m_localAnchorB;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyB's origin.
+ */
+RopeJoint.prototype.setLocalAnchorB = function(anchor) {
+  return this.m_localAnchorB = anchor;
+};
 
 /**
  * Set/Get the maximum length of the rope.
@@ -18929,10 +18971,24 @@ WeldJoint.prototype.getLocalAnchorA = function() {
 };
 
 /**
+ * Sets the local anchor point relative to bodyA's origin.
+ */
+WeldJoint.prototype.setLocalAnchorA = function(anchor) {
+  return this.m_localAnchorA = anchor;
+};
+
+/**
  * The local anchor point relative to bodyB's origin.
  */
 WeldJoint.prototype.getLocalAnchorB = function() {
   return this.m_localAnchorB;
+};
+
+/**
+ * Sets the local anchor point relative to bodyB's origin.
+ */
+WeldJoint.prototype.setLocalAnchorB = function(anchor) {
+  return this.m_localAnchorB = anchor;
 };
 
 /**
