@@ -707,16 +707,16 @@ Vec2.sub = function(v, w) {
   return Vec2.neo(v.x - w.x, v.y - w.y);
 }
 
-Vec2.mul = function(a, b) {
+Vec2.mul = function(a, b, res) {
   if (typeof a === 'object') {
     _ASSERT && Vec2.assert(a);
     _ASSERT && Math.assert(b);
-    return Vec2.neo(a.x * b, a.y * b);
+    return res ? res.set(a.x * b, a.y * b) : Vec2.neo(a.x * b, a.y * b);
 
   } else if (typeof b === 'object') {
     _ASSERT && Math.assert(a);
     _ASSERT && Vec2.assert(b);
-    return Vec2.neo(a * b.x, a * b.y);
+    return res ? res.set(a * b.x, a * b.y) : Vec2.neo(a * b.x, a * b.y);
   }
 }
 
@@ -2552,9 +2552,10 @@ Joint.prototype.getAnchorB = function() {
  * Get the reaction force on bodyB at the joint anchor in Newtons.
  * 
  * @param {float} inv_dt
+ * @param {Vec2} res
  * @return {Vec2}
  */
-Joint.prototype.getReactionForce = function(inv_dt) {
+Joint.prototype.getReactionForce = function(inv_dt, res) {
 };
 
 /**
@@ -11308,8 +11309,10 @@ RevoluteJoint.prototype.getAnchorB = function() {
 /**
  * Get the reaction force given the inverse time step. Unit is N.
  */
-RevoluteJoint.prototype.getReactionForce = function(inv_dt) {
-  return Vec2.neo(this.m_impulse.x, this.m_impulse.y).mul(inv_dt);
+RevoluteJoint.prototype.getReactionForce = function(inv_dt, res) {
+  return res ?
+    res.set( this.m_impulse.x, this.m_impulse.y).mul(inv_dt) :
+    Vec2.neo(this.m_impulse.x, this.m_impulse.y).mul(inv_dt);
 }
 
 /**
@@ -15260,8 +15263,8 @@ DistanceJoint.prototype.getAnchorB = function() {
   return this.m_bodyB.getWorldPoint(this.m_localAnchorB);
 }
 
-DistanceJoint.prototype.getReactionForce = function(inv_dt) {
-  return Vec2.mul(this.m_impulse, this.m_u).mul(inv_dt);
+DistanceJoint.prototype.getReactionForce = function(inv_dt, res) {
+  return Vec2.mul(this.m_impulse, this.m_u, res).mul(inv_dt);
 }
 
 DistanceJoint.prototype.getReactionTorque = function(inv_dt) {
@@ -17483,8 +17486,8 @@ RopeJoint.prototype.getAnchorB = function() {
   return this.m_bodyB.getWorldPoint(this.m_localAnchorB);
 }
 
-RopeJoint.prototype.getReactionForce = function(inv_dt) {
-  return Vec2.mul(this.m_impulse, this.m_u).mul(inv_dt);
+RopeJoint.prototype.getReactionForce = function(inv_dt, res) {
+  return Vec2.mul(this.m_impulse, this.m_u, res).mul(inv_dt);
 }
 
 RopeJoint.prototype.getReactionTorque = function(inv_dt) {
@@ -17833,8 +17836,8 @@ WeldJoint.prototype.getAnchorB = function() {
   return this.m_bodyB.getWorldPoint(this.m_localAnchorB);
 };
 
-WeldJoint.prototype.getReactionForce = function(inv_dt) {
-  return Vec2.neo(this.m_impulse.x, this.m_impulse.y).mul(inv_dt);
+WeldJoint.prototype.getReactionForce = function(inv_dt, res) {
+  return Vec2.neo(this.m_impulse.x, this.m_impulse.y, res).mul(inv_dt);
 };
 
 WeldJoint.prototype.getReactionTorque = function(inv_dt) {
