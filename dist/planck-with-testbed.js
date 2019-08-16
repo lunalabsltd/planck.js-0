@@ -707,16 +707,16 @@ Vec2.sub = function(v, w) {
   return Vec2.neo(v.x - w.x, v.y - w.y);
 }
 
-Vec2.mul = function(a, b) {
+Vec2.mul = function(a, b, res) {
   if (typeof a === 'object') {
     _ASSERT && Vec2.assert(a);
     _ASSERT && Math.assert(b);
-    return Vec2.neo(a.x * b, a.y * b);
+    return res ? res.set(a.x * b, a.y * b) : Vec2.neo(a.x * b, a.y * b);
 
   } else if (typeof b === 'object') {
     _ASSERT && Math.assert(a);
     _ASSERT && Vec2.assert(b);
-    return Vec2.neo(a * b.x, a * b.y);
+    return res ? res.set(a * b.x, a * b.y) : Vec2.neo(a * b.x, a * b.y);
   }
 }
 
@@ -2524,6 +2524,15 @@ Joint.prototype.getCollideConnected = function() {
 };
 
 /**
+ * Set collide connected. Note: the flag is only checked when fixture AABBs begin to overlap.
+ * 
+ * @returns {boolean}
+ */
+Joint.prototype.setCollideConnected = function(collideConnected) {
+  this.m_collideConnected = collideConnected;
+};
+
+/**
  * Get the anchor point on bodyA in world coordinates.
  * 
  * @return {Vec2}
@@ -2543,9 +2552,10 @@ Joint.prototype.getAnchorB = function() {
  * Get the reaction force on bodyB at the joint anchor in Newtons.
  * 
  * @param {float} inv_dt
+ * @param {Vec2} res
  * @return {Vec2}
  */
-Joint.prototype.getReactionForce = function(inv_dt) {
+Joint.prototype.getReactionForce = function(inv_dt, res) {
 };
 
 /**
@@ -8733,8 +8743,8 @@ Body.prototype.destroyFixture = function(fixture) {
 /**
  * Get the corresponding world point of a local point.
  */
-Body.prototype.getWorldPoint = function(localPoint) {
-  return Transform.mulVec2(this.m_xf, localPoint);
+Body.prototype.getWorldPoint = function(localPoint, res) {
+  return Transform.mulVec2(this.m_xf, localPoint, res);
 };
 
 /**
@@ -12154,14 +12164,28 @@ function RevoluteJoint(def, bodyA, bodyB, anchor) {
  */
 RevoluteJoint.prototype.getLocalAnchorA = function() {
   return this.m_localAnchorA;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyA's origin.
+ */
+RevoluteJoint.prototype.setLocalAnchorA = function(anchor) {
+  return this.m_localAnchorA = anchor;
+};
 
 /**
  * The local anchor point relative to bodyB's origin.
  */
 RevoluteJoint.prototype.getLocalAnchorB = function() {
   return this.m_localAnchorB;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyB's origin.
+ */
+RevoluteJoint.prototype.setLocalAnchorB = function(anchor) {
+  return this.m_localAnchorB = anchor;
+};
 
 /**
  * Get the reference angle.
@@ -12295,8 +12319,10 @@ RevoluteJoint.prototype.getAnchorB = function() {
 /**
  * Get the reaction force given the inverse time step. Unit is N.
  */
-RevoluteJoint.prototype.getReactionForce = function(inv_dt) {
-  return Vec2.neo(this.m_impulse.x, this.m_impulse.y).mul(inv_dt);
+RevoluteJoint.prototype.getReactionForce = function(inv_dt, res) {
+  return res ?
+    res.set( this.m_impulse.x, this.m_impulse.y).mul(inv_dt) :
+    Vec2.neo(this.m_impulse.x, this.m_impulse.y).mul(inv_dt);
 }
 
 /**
@@ -15603,7 +15629,7 @@ function CollidePolygonCircle(manifold, polygonA, xfA, circleB, xfB) {
   cLocal = Transform.mulVec2(xfB, circleB.m_p, cLocal);
   cLocal = Transform.mulTVec2(xfA, cLocal, cLocal);
 
-  // Find the min separating edge.
+  // Find the separating edge.
   var normalIndex = 0;
   var separation = -Infinity;
   var radius = polygonA.m_radius + circleB.m_radius;
@@ -15709,7 +15735,7 @@ Contact.polygonCircleOverlap = function(polygonA, xfA, circleB, xfB) {
   cLocal = Transform.mulVec2(xfB, circleB.m_p, cLocal);
   cLocal = Transform.mulTVec2(xfA, cLocal, cLocal);
 
-  // Find the min separating edge.
+  // Find the separating edge.
   var normalIndex = 0;
   var separation = -Infinity;
   var radius = polygonA.m_radius + circleB.m_radius;
@@ -16382,14 +16408,28 @@ function DistanceJoint(def, bodyA, bodyB, anchorA, anchorB) {
  */
 DistanceJoint.prototype.getLocalAnchorA = function() {
   return this.m_localAnchorA;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyA's origin.
+ */
+DistanceJoint.prototype.setLocalAnchorA = function(anchor) {
+  return this.m_localAnchorA = anchor;
+};
 
 /**
  * The local anchor point relative to bodyB's origin.
  */
 DistanceJoint.prototype.getLocalAnchorB = function() {
   return this.m_localAnchorB;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyB's origin.
+ */
+DistanceJoint.prototype.setLocalAnchorB = function(anchor) {
+  return this.m_localAnchorB = anchor;
+};
 
 /**
  * Set/get the natural length. Manipulating the length can lead to non-physical
@@ -16427,8 +16467,8 @@ DistanceJoint.prototype.getAnchorB = function() {
   return this.m_bodyB.getWorldPoint(this.m_localAnchorB);
 }
 
-DistanceJoint.prototype.getReactionForce = function(inv_dt) {
-  return Vec2.mul(this.m_impulse, this.m_u).mul(inv_dt);
+DistanceJoint.prototype.getReactionForce = function(inv_dt, res) {
+  return Vec2.mul(this.m_impulse, this.m_u, res).mul(inv_dt);
 }
 
 DistanceJoint.prototype.getReactionTorque = function(inv_dt) {
@@ -18592,14 +18632,28 @@ function RopeJoint(def, bodyA, bodyB, anchor) {
  */
 RopeJoint.prototype.getLocalAnchorA = function() {
   return this.m_localAnchorA;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyA's origin.
+ */
+RopeJoint.prototype.setLocalAnchorA = function(anchor) {
+  return this.m_localAnchorA = anchor;
+};
 
 /**
  * The local anchor point relative to bodyB's origin.
  */
 RopeJoint.prototype.getLocalAnchorB = function() {
   return this.m_localAnchorB;
-}
+};
+
+/**
+ * Sets the local anchor point relative to bodyB's origin.
+ */
+RopeJoint.prototype.setLocalAnchorB = function(anchor) {
+  return this.m_localAnchorB = anchor;
+};
 
 /**
  * Set/Get the maximum length of the rope.
@@ -18636,8 +18690,8 @@ RopeJoint.prototype.getAnchorB = function() {
   return this.m_bodyB.getWorldPoint(this.m_localAnchorB);
 }
 
-RopeJoint.prototype.getReactionForce = function(inv_dt) {
-  return Vec2.mul(this.m_impulse, this.m_u).mul(inv_dt);
+RopeJoint.prototype.getReactionForce = function(inv_dt, res) {
+  return Vec2.mul(this.m_impulse, this.m_u, res).mul(inv_dt);
 }
 
 RopeJoint.prototype.getReactionTorque = function(inv_dt) {
@@ -18929,10 +18983,24 @@ WeldJoint.prototype.getLocalAnchorA = function() {
 };
 
 /**
+ * Sets the local anchor point relative to bodyA's origin.
+ */
+WeldJoint.prototype.setLocalAnchorA = function(anchor) {
+  return this.m_localAnchorA = anchor;
+};
+
+/**
  * The local anchor point relative to bodyB's origin.
  */
 WeldJoint.prototype.getLocalAnchorB = function() {
   return this.m_localAnchorB;
+};
+
+/**
+ * Sets the local anchor point relative to bodyB's origin.
+ */
+WeldJoint.prototype.setLocalAnchorB = function(anchor) {
+  return this.m_localAnchorB = anchor;
 };
 
 /**
@@ -18972,8 +19040,8 @@ WeldJoint.prototype.getAnchorB = function() {
   return this.m_bodyB.getWorldPoint(this.m_localAnchorB);
 };
 
-WeldJoint.prototype.getReactionForce = function(inv_dt) {
-  return Vec2.neo(this.m_impulse.x, this.m_impulse.y).mul(inv_dt);
+WeldJoint.prototype.getReactionForce = function(inv_dt, res) {
+  return Vec2.neo(this.m_impulse.x, this.m_impulse.y, res).mul(inv_dt);
 };
 
 WeldJoint.prototype.getReactionTorque = function(inv_dt) {
